@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tsx_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  tsx-tracker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GRPC_PORT: "50051"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: tsx_tracker
+      DB_SSLMODE: disable
+      FMP_API_KEY: ${FMP_API_KEY}
+      FMP_BASE_URL: https://financialmodelingprep.com
+      STALENESS_THRESHOLD: 24h
+      REFRESH_CHECK_INTERVAL: 30m
+      MAX_COMPANIES_PER_REFRESH_CYCLE: "50"
+      PROFILE_BATCH_SIZE: "3"
+      MAX_TRACKED_COMPANIES: "300"
+    ports:
+      - "50051:50051"
+
+volumes:
+  pgdata:

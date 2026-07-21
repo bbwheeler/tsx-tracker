@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package tsx.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/example/tsx-tracker/gen/tsx/v1;tsxv1";
+
+// Company represents a single TSX-listed company and its known
+// fundamental/reference information, as last synced from the upstream
+// data provider into our database.
+message Company {
+  string symbol = 1;             // e.g. "SHOP.TO"
+  string name = 2;                // legal / display name
+  string exchange = 3;            // e.g. "TSX"
+  string sector = 4;
+  string industry = 5;
+  string ceo = 6;
+  string description = 7;
+  string website = 8;
+  string headquarters = 9;        // "City, State/Province, Country"
+  int64 employees = 10;
+  double market_cap = 11;
+  double price = 12;
+  string currency = 13;           // e.g. "CAD"
+  google.protobuf.Timestamp last_updated = 14;
+}
+
+message ListCompaniesRequest {
+  // Max number of companies to return. Defaults to 50, capped at 500.
+  int32 page_size = 1;
+  // Opaque token from a previous response's next_page_token. Empty for
+  // the first page.
+  string page_token = 2;
+  // Optional: only return companies in this sector (case-insensitive,
+  // exact match). Empty means no filter.
+  string sector_filter = 3;
+}
+
+message ListCompaniesResponse {
+  repeated Company companies = 1;
+  // Empty when there are no more results.
+  string next_page_token = 2;
+  // Total number of companies matching the filter (independent of paging).
+  int32 total_count = 3;
+}
+
+message GetCompanyRequest {
+  // Stock symbol, e.g. "SHOP.TO". Case-insensitive.
+  string symbol = 1;
+}
+
+message GetCompanyResponse {
+  Company company = 1;
+}
+
+service CompanyService {
+  // ListCompanies returns a page of tracked TSX companies.
+  rpc ListCompanies(ListCompaniesRequest) returns (ListCompaniesResponse);
+
+  // GetCompany returns a single company by stock symbol.
+  // Returns NOT_FOUND if the symbol isn't tracked.
+  rpc GetCompany(GetCompanyRequest) returns (GetCompanyResponse);
+}

@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -148,7 +149,8 @@ func (c *Client) getJSON(ctx context.Context, u string, out any) error {
 		return fmt.Errorf("upstream API returned HTTP %d", resp.StatusCode)
 	}
 
-	dec := json.NewDecoder(resp.Body)
+	const maxBodySize = 10 << 20 // 10 MiB
+	dec := json.NewDecoder(io.LimitReader(resp.Body, maxBodySize))
 	if err := dec.Decode(out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}

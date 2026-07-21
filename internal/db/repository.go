@@ -78,46 +78,48 @@ func (r *Repository) UpsertCompanies(ctx context.Context, companies []Company) e
 		return nil
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	const colsPerRow = 13
+	args := make([]any, 0, len(companies)*colsPerRow)
+	var b strings.Builder
+	b.WriteString(`INSERT INTO companies (
+		symbol, name, exchange, sector, industry, ceo, description,
+		website, headquarters, employees, market_cap, price, currency, last_updated
+	) VALUES `)
 
-	const stmt = `
-		INSERT INTO companies (
-			symbol, name, exchange, sector, industry, ceo, description,
-			website, headquarters, employees, market_cap, price, currency,
-			last_updated
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
-		ON CONFLICT (symbol) DO UPDATE SET
-			name = EXCLUDED.name,
-			exchange = EXCLUDED.exchange,
-			sector = EXCLUDED.sector,
-			industry = EXCLUDED.industry,
-			ceo = EXCLUDED.ceo,
-			description = EXCLUDED.description,
-			website = EXCLUDED.website,
-			headquarters = EXCLUDED.headquarters,
-			employees = EXCLUDED.employees,
-			market_cap = EXCLUDED.market_cap,
-			price = EXCLUDED.price,
-			currency = EXCLUDED.currency,
-			last_updated = now()
-	`
-
-	for _, c := range companies {
-		_, err := tx.Exec(ctx, stmt,
+	for i, c := range companies {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		n := i * colsPerRow
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d, now())",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9, n+10, n+11, n+12, n+13)
+		args = append(args,
 			c.Symbol, c.Name, c.Exchange, c.Sector, c.Industry, c.CEO,
 			c.Description, c.Website, c.Headquarters, c.Employees,
 			c.MarketCap, c.Price, c.Currency,
 		)
-		if err != nil {
-			return fmt.Errorf("upsert company %s: %w", c.Symbol, err)
-		}
 	}
 
-	return tx.Commit(ctx)
+	b.WriteString(` ON CONFLICT (symbol) DO UPDATE SET
+		name = EXCLUDED.name,
+		exchange = EXCLUDED.exchange,
+		sector = EXCLUDED.sector,
+		industry = EXCLUDED.industry,
+		ceo = EXCLUDED.ceo,
+		description = EXCLUDED.description,
+		website = EXCLUDED.website,
+		headquarters = EXCLUDED.headquarters,
+		employees = EXCLUDED.employees,
+		market_cap = EXCLUDED.market_cap,
+		price = EXCLUDED.price,
+		currency = EXCLUDED.currency,
+		last_updated = now()
+	`)
+
+	if _, err := r.pool.Exec(ctx, b.String(), args...); err != nil {
+		return fmt.Errorf("upsert companies: %w", err)
+	}
+	return nil
 }
 
 // InsertSymbolStubs ensures a row exists (with just symbol/name/exchange)
@@ -129,23 +131,26 @@ func (r *Repository) InsertSymbolStubs(ctx context.Context, stubs []Company) err
 	if len(stubs) == 0 {
 		return nil
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
 
-	const stmt = `
-		INSERT INTO companies (symbol, name, exchange, price, currency, last_updated)
-		VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '1970-01-01')
-		ON CONFLICT (symbol) DO NOTHING
-	`
-	for _, c := range stubs {
-		if _, err := tx.Exec(ctx, stmt, c.Symbol, c.Name, c.Exchange, c.Price, c.Currency); err != nil {
-			return fmt.Errorf("insert stub %s: %w", c.Symbol, err)
+	const colsPerRow = 5
+	args := make([]any, 0, len(stubs)*colsPerRow)
+	var b strings.Builder
+	b.WriteString(`INSERT INTO companies (symbol, name, exchange, price, currency, last_updated) VALUES `)
+
+	for i, s := range stubs {
+		if i > 0 {
+			b.WriteByte(',')
 		}
+		n := i * colsPerRow
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d, TIMESTAMPTZ '1970-01-01')", n+1, n+2, n+3, n+4, n+5)
+		args = append(args, s.Symbol, s.Name, s.Exchange, s.Price, s.Currency)
 	}
-	return tx.Commit(ctx)
+	b.WriteString(` ON CONFLICT (symbol) DO NOTHING`)
+
+	if _, err := r.pool.Exec(ctx, b.String(), args...); err != nil {
+		return fmt.Errorf("insert stubs: %w", err)
+	}
+	return nil
 }
 
 // StaleSymbols returns up to `limit` symbols whose last_updated is older
@@ -187,7 +192,7 @@ func (r *Repository) GetBySymbol(ctx context.Context, symbol string) (*Company, 
 		FROM companies WHERE upper(symbol) = upper($1)
 	`, symbol)
 
-	c, err := scanCompany(row)
+	c, err := scanCompanyRows(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -263,10 +268,6 @@ func (r *Repository) CountBySector(ctx context.Context, sectorFilter string) (in
 
 type rowScanner interface {
 	Scan(dest ...any) error
-}
-
-func scanCompany(row pgx.Row) (*Company, error) {
-	return scanCompanyRows(row)
 }
 
 func scanCompanyRows(row rowScanner) (*Company, error) {

@@ -1,0 +1,9 @@
+services:
+  tsx-tracker:
+    build:
+      context: .
+      dockerfile: Containerfile
+    env_file: .env.podman
+    ports:
+      - "50051:50051"
+    restart: unless-stopped

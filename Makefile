@@ -1,4 +1,4 @@
-.PHONY: proto proto-protoc tidy run build docker-up docker-down
+.PHONY: proto proto-protoc tidy run build docker-up docker-down podman-up podman-down podman-build
 
 # Preferred: generate gRPC/protobuf Go code with buf (https://buf.build).
 # Requires network access to buf's remote plugins (or local protoc plugins,
@@ -30,3 +30,12 @@ docker-up:
 
 docker-down:
 	docker compose down -v
+
+podman-build:
+	podman-compose -f podman-compose.yml build
+
+podman-up:
+	podman-compose -f podman-compose.yml up -d
+
+podman-down:
+	podman-compose -f podman-compose.yml down

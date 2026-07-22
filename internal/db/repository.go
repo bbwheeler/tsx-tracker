@@ -158,7 +158,7 @@ func (r *Repository) InsertSymbolStubs(ctx context.Context, stubs []Company) err
 // with an epoch timestamp so they're always picked up first).
 func (r *Repository) StaleSymbols(ctx context.Context, olderThan time.Time, limit int) ([]string, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT symbol FROM companies WHERE last_updated < $1 ORDER BY last_updated ASC LIMIT $2`,
+		`SELECT symbol FROM companies WHERE last_updated < $1 ORDER BY RANDOM() LIMIT $2`,
 		olderThan, limit,
 	)
 	if err != nil {
@@ -182,6 +182,38 @@ func (r *Repository) TrackedCount(ctx context.Context) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM companies`).Scan(&n)
 	return n, err
+}
+
+// DeleteBySymbols removes companies whose symbols are in the given slice.
+// Returns the number of rows deleted.
+func (r *Repository) DeleteBySymbols(ctx context.Context, symbols []string) (int64, error) {
+	if len(symbols) == 0 {
+		return 0, nil
+	}
+	n, err := r.pool.Exec(ctx, `DELETE FROM companies WHERE symbol = ANY($1)`, symbols)
+	if err != nil {
+		return 0, fmt.Errorf("delete by symbols: %w", err)
+	}
+	return n.RowsAffected(), nil
+}
+
+// AllSymbols returns every tracked symbol in the database.
+func (r *Repository) AllSymbols(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT symbol FROM companies`)
+	if err != nil {
+		return nil, fmt.Errorf("query all symbols: %w", err)
+	}
+	defer rows.Close()
+
+	var symbols []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		symbols = append(symbols, s)
+	}
+	return symbols, rows.Err()
 }
 
 // GetBySymbol fetches a single company. Symbol match is case-insensitive.

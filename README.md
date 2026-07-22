@@ -1,8 +1,10 @@
 # tsx-tracker
 
 A Go service that tracks companies listed on the Toronto Stock Exchange
-(TSX) in a PostgreSQL database, keeps their data fresh (never more than 24
-hours old), and exposes it over gRPC.
+(TSX) in a PostgreSQL database, keeps their data fresh, and exposes it
+over gRPC. Every 24 hours it syncs the full TSX symbol list (adding new
+listings, removing delisted companies) and refreshes a random subset of
+companies with complete profile data.
 
 ## Architecture
 
@@ -11,11 +13,11 @@ cmd/server/main.go        wires everything together, starts the gRPC server
 internal/config           env-var configuration (DB, refresh cadence, API key)
 internal/db               Postgres repository (schema, upsert, query, pagination)
 internal/provider         Financial Modeling Prep API client (symbol list + profiles)
-internal/refresher        background loop enforcing the 24h staleness bound
+internal/refresher        background loop syncing symbols + refreshing random subsets
 internal/grpcserver       gRPC service implementation
 proto/tsx/v1/tsx.proto    gRPC API definition
 gen/tsx/v1                generated protobuf/gRPC Go code (run `make proto` first)
-migrations/0001_init.sql  Postgres schema
+migrations/0001_init.sql  Postgres schema (embedded in internal/db/)
 ```
 
 ### Why PostgreSQL
@@ -43,20 +45,16 @@ Both are usable with a free API key (sign up, no payment required).
 
 **Free-tier tradeoff:** the TSX lists well over 1,500 companies, and free
 API tiers rate-limit requests per day. Fetching full fundamentals for the
-entire TSX universe every 24 hours isn't realistic on a free plan. The
-service handles this honestly rather than pretending otherwise:
-- `MAX_TRACKED_COMPANIES` caps how many companies are tracked (default 300).
-- The refresher fetches only a bounded batch (`MAX_COMPANIES_PER_REFRESH_CYCLE`,
-  default 50) per cycle, in small upstream batches (`PROFILE_BATCH_SIZE`,
-  default 3), spread across cycles (`REFRESH_CHECK_INTERVAL`, default every
-  30 minutes) — so the *tracked subset* cycles fully within the 24h bound
-  without exceeding free-tier rate limits.
-- If you have a paid FMP plan (or want to swap in another provider), raise
-  or zero out `MAX_TRACKED_COMPANIES` and tighten the refresh cadence.
+entire TSX universe in a single cycle isn't realistic on a free plan. The
+service handles this by refreshing a random subset (`DAILY_REFRESH_COUNT`,
+default 50) per cycle, in small upstream batches (`PROFILE_BATCH_SIZE`,
+default 3). Over multiple days the random selection ensures all companies
+get refreshed. Every cycle the full TSX symbol list is synced — new
+listings are added as stub rows and delisted symbols are removed.
 
-New symbols are discovered automatically (`discoverNewSymbols` in
-`internal/refresher`) and inserted as "stub" rows, which the staleness
-check then picks up first for a full profile fetch.
+New symbols are discovered automatically (`discoverSymbols` in
+`internal/refresher`) and inserted as "stub" rows, which are always
+eligible for refresh due to their epoch `last_updated` timestamp.
 
 ## Running it
 
@@ -75,7 +73,7 @@ make proto-protoc      # requires local protoc + protoc-gen-go + protoc-gen-go-g
 export FMP_API_KEY=your_key_here
 make docker-up
 ```
-This starts Postgres and the service together; the Dockerfile generates
+This starts Postgres and the service together; the Containerfile generates
 the gRPC code and builds the binary in a multi-stage build.
 
 ### 3b. Run locally

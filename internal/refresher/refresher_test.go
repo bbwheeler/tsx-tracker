@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,16 @@ func setupRepo(t *testing.T) *db.Repository {
 	return repo
 }
 
+func testConfig(fmpURL string) *config.Config {
+	return &config.Config{
+		FMPAPIKey:            "test",
+		FMPBaseURL:           fmpURL,
+		RefreshCheckInterval: 24 * time.Hour,
+		DailyRefreshCount:    100,
+		ProfileBatchSize:     3,
+	}
+}
+
 func TestTick_WithRealRepo(t *testing.T) {
 	repo := setupRepo(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,16 +110,7 @@ func TestTick_WithRealRepo(t *testing.T) {
 	}))
 	defer fmp.Close()
 
-	cfg := &config.Config{
-		FMPAPIKey:                    "test",
-		FMPBaseURL:                   fmp.URL,
-		StalenessThreshold:           24 * time.Hour,
-		RefreshCheckInterval:         time.Hour,
-		MaxCompaniesPerRefreshCycle:  100,
-		ProfileBatchSize:             3,
-		MaxTrackedCompanies:          0,
-	}
-
+	cfg := testConfig(fmp.URL)
 	p := provider.NewClient(fmp.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
@@ -148,43 +150,35 @@ func TestTick_WithRealRepo(t *testing.T) {
 	}
 }
 
-func TestTick_MaxTrackedCompaniesCap(t *testing.T) {
+func TestTick_PruneDelisted(t *testing.T) {
 	repo := setupRepo(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
+	// Pre-insert two companies: one that will remain, one that is delisted.
 	if err := repo.UpsertCompanies(ctx, []db.Company{
-		{Symbol: "A.TO", Name: "A", Exchange: "TSX", Price: 1, Currency: "CAD", LastUpdated: time.Now()},
-		{Symbol: "B.TO", Name: "B", Exchange: "TSX", Price: 2, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "A.TO", Name: "Active Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "B.TO", Name: "Delisted Corp", Exchange: "TSX", Price: 5, Currency: "CAD", LastUpdated: time.Now()},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	var listSymbolsCalled bool
 	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v3/symbol/TSX" {
-			listSymbolsCalled = true
+		switch r.URL.Path {
+		case "/api/v3/symbol/TSX":
+			// Only A.TO is still on TSX; B.TO has been delisted.
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "C.TO", "name": "New Corp", "price": 10.0, "exchange": "TSX"},
+				{"symbol": "A.TO", "name": "Active Corp", "price": 10.0, "exchange": "TSX"},
 			})
-		} else {
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer fmp.Close()
 
-	cfg := &config.Config{
-		FMPAPIKey:                    "test",
-		FMPBaseURL:                   fmp.URL,
-		StalenessThreshold:           24 * time.Hour,
-		RefreshCheckInterval:         time.Hour,
-		MaxCompaniesPerRefreshCycle:  100,
-		ProfileBatchSize:             3,
-		MaxTrackedCompanies:          2,
-	}
-
+	cfg := testConfig(fmp.URL)
 	p := provider.NewClient(fmp.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
@@ -193,17 +187,21 @@ func TestTick_MaxTrackedCompaniesCap(t *testing.T) {
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 
-	if !listSymbolsCalled {
-		t.Error("ListSymbols was not called")
+	vctx := context.Background()
+
+	// B.TO should have been pruned.
+	_, err := repo.GetBySymbol(vctx, "B.TO")
+	if err != db.ErrNotFound {
+		t.Errorf("B.TO should have been pruned, got err = %v", err)
 	}
 
-	vctx := context.Background()
-	count, err := repo.TrackedCount(vctx)
+	// A.TO should still exist.
+	c, err := repo.GetBySymbol(vctx, "A.TO")
 	if err != nil {
-		t.Fatalf("count: %v", err)
+		t.Fatalf("A.TO should still exist: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("TrackedCount = %d, want 2 (cap enforced)", count)
+	if c.Name != "Active Corp" {
+		t.Errorf("Name = %q, want Active Corp", c.Name)
 	}
 }
 
@@ -242,16 +240,7 @@ func TestTick_StaleRefresh(t *testing.T) {
 	}))
 	defer fmp.Close()
 
-	cfg := &config.Config{
-		FMPAPIKey:                    "test",
-		FMPBaseURL:                   fmp.URL,
-		StalenessThreshold:           24 * time.Hour,
-		RefreshCheckInterval:         time.Hour,
-		MaxCompaniesPerRefreshCycle:  100,
-		ProfileBatchSize:             3,
-		MaxTrackedCompanies:          0,
-	}
-
+	cfg := testConfig(fmp.URL)
 	p := provider.NewClient(fmp.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
@@ -301,16 +290,7 @@ func TestTick_ProfilesAPIError(t *testing.T) {
 	}))
 	defer fmp.Close()
 
-	cfg := &config.Config{
-		FMPAPIKey:                    "test",
-		FMPBaseURL:                   fmp.URL,
-		StalenessThreshold:           24 * time.Hour,
-		RefreshCheckInterval:         time.Hour,
-		MaxCompaniesPerRefreshCycle:  100,
-		ProfileBatchSize:             3,
-		MaxTrackedCompanies:          0,
-	}
-
+	cfg := testConfig(fmp.URL)
 	p := provider.NewClient(fmp.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
@@ -326,5 +306,172 @@ func TestTick_ProfilesAPIError(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("TrackedCount = %d, want 1", count)
+	}
+}
+
+func TestTick_SymbolsAPIError(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// Pre-insert a stale company so refreshRandom still runs.
+	if err := repo.InsertSymbolStubs(ctx, []db.Company{
+		{Symbol: "PREEXIST.TO", Name: "Pre-existing", Exchange: "TSX", Price: 1, Currency: "CAD"},
+	}); err != nil {
+		t.Fatalf("insert stub: %v", err)
+	}
+
+	var profileCalled bool
+	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/symbol/TSX":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v3/profile/PREEXIST.TO":
+			profileCalled = true
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"symbol": "PREEXIST.TO", "companyName": "Pre-existing Corp",
+					"price": 5.0, "mktCap": 1e6, "sector": "Industrials",
+					"industry": "Manufacturing", "ceo": "Bob",
+					"description": "Pre-existing", "website": "https://pre.com",
+					"city": "Calgary", "state": "Alberta", "country": "Canada",
+					"fullTimeEmployees": "50", "currency": "CAD",
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer fmp.Close()
+
+	cfg := testConfig(fmp.URL)
+	p := provider.NewClient(fmp.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(2 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	if !profileCalled {
+		t.Error("Profiles was not called for stale company")
+	}
+
+	vctx := context.Background()
+	c, err := repo.GetBySymbol(vctx, "PREEXIST.TO")
+	if err != nil {
+		t.Fatalf("GetBySymbol: %v", err)
+	}
+	if c.Name != "Pre-existing Corp" {
+		t.Errorf("Name = %q, want Pre-existing Corp", c.Name)
+	}
+}
+
+func TestTick_ContextCancellation(t *testing.T) {
+	repo := setupRepo(t)
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer fmp.Close()
+
+	cfg := testConfig(fmp.URL)
+	p := provider.NewClient(fmp.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		ref.Run(ctx)
+		close(done)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not exit after context cancellation")
+	}
+}
+
+func TestTick_MultipleBatchProcessing(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// Insert 5 stale stubs
+	var stubs []db.Company
+	for i := 0; i < 5; i++ {
+		stubs = append(stubs, db.Company{
+			Symbol:   string(rune('A'+i)) + ".TO",
+			Name:     "Stub " + string(rune('A'+i)),
+			Exchange: "TSX",
+			Price:    float64(i + 1),
+			Currency: "CAD",
+		})
+	}
+	if err := repo.InsertSymbolStubs(ctx, stubs); err != nil {
+		t.Fatalf("insert stubs: %v", err)
+	}
+
+	profileCalls := make(map[string]bool)
+	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/symbol/TSX":
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{})
+		default:
+			if len(r.URL.Path) > len("/api/v3/profile/") {
+				symbols := r.URL.Path[len("/api/v3/profile/"):]
+				for _, s := range strings.Split(symbols, ",") {
+					profileCalls[s] = true
+				}
+				w.Header().Set("Content-Type", "application/json")
+				var profiles []map[string]any
+				for _, s := range strings.Split(symbols, ",") {
+					profiles = append(profiles, map[string]any{
+						"symbol": s, "companyName": s + " Corp",
+						"price": 10.0, "mktCap": 1e6, "sector": "Technology",
+						"industry": "Software", "ceo": "CEO",
+						"description": "Desc", "website": "https://example.com",
+						"city": "Toronto", "state": "Ontario", "country": "Canada",
+						"fullTimeEmployees": "100", "currency": "CAD",
+					})
+				}
+				json.NewEncoder(w).Encode(profiles)
+			}
+		}
+	}))
+	defer fmp.Close()
+
+	cfg := testConfig(fmp.URL)
+	cfg.ProfileBatchSize = 2 // Small batch size to force multiple batches
+	p := provider.NewClient(fmp.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(3 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	if len(profileCalls) != 5 {
+		t.Errorf("got %d profile calls, want 5", len(profileCalls))
+	}
+
+	vctx := context.Background()
+	count, err := repo.TrackedCount(vctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 5 {
+		t.Errorf("TrackedCount = %d, want 5", count)
 	}
 }

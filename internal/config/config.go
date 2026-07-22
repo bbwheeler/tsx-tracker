@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -27,26 +28,17 @@ type Config struct {
 	FMPBaseURL string
 
 	// Refresh behaviour
-	// StalenessThreshold: a company's data is considered stale (and must
-	// be re-fetched) once it is older than this. The task requires <= 24h.
-	StalenessThreshold time.Duration
 	// RefreshCheckInterval: how often the background refresher wakes up
-	// to look for stale/missing companies.
+	// to sync the TSX symbol list and refresh a random subset of companies.
 	RefreshCheckInterval time.Duration
-	// MaxCompaniesPerRefreshCycle limits how many company profiles are
-	// fetched from the upstream API per refresh tick, so the service stays
-	// within a free-tier API rate limit while still cycling through the
-	// whole tracked universe within StalenessThreshold.
-	MaxCompaniesPerRefreshCycle int
+	// DailyRefreshCount limits how many company profiles are refreshed
+	// per cycle. Companies that have not been refreshed within the
+	// RefreshCheckInterval are eligible; a random subset of this size is
+	// chosen each cycle.
+	DailyRefreshCount int
 	// ProfileBatchSize is how many symbols are requested per upstream
 	// "profile" API call (FMP supports comma-separated batches).
 	ProfileBatchSize int
-	// MaxTrackedCompanies caps the total number of TSX symbols the service
-	// tracks. Free-tier market data APIs cannot support fetching fresh
-	// fundamentals for the full ~1,800+ symbol TSX universe every 24h
-	// without a paid plan; this keeps the demo/deployment realistic. Set
-	// to 0 for "no cap" if you have a paid API plan with higher limits.
-	MaxTrackedCompanies int
 }
 
 func Load() (*Config, error) {
@@ -62,26 +54,44 @@ func Load() (*Config, error) {
 		FMPAPIKey:  getEnv("FMP_API_KEY", ""),
 		FMPBaseURL: getEnv("FMP_BASE_URL", "https://financialmodelingprep.com"),
 
-		StalenessThreshold:          getEnvDuration("STALENESS_THRESHOLD", 24*time.Hour),
-		RefreshCheckInterval:        getEnvDuration("REFRESH_CHECK_INTERVAL", 30*time.Minute),
-		MaxCompaniesPerRefreshCycle: getEnvInt("MAX_COMPANIES_PER_REFRESH_CYCLE", 50),
-		ProfileBatchSize:            getEnvInt("PROFILE_BATCH_SIZE", 3),
-		MaxTrackedCompanies:         getEnvInt("MAX_TRACKED_COMPANIES", 300),
+		RefreshCheckInterval: getEnvDuration("REFRESH_CHECK_INTERVAL", 24*time.Hour),
+		DailyRefreshCount:    getEnvInt("DAILY_REFRESH_COUNT", 50),
+		ProfileBatchSize:     getEnvInt("PROFILE_BATCH_SIZE", 3),
 	}
 
 	if cfg.FMPAPIKey == "" {
 		return nil, fmt.Errorf("FMP_API_KEY is required (get a free key at https://site.financialmodelingprep.com/)")
 	}
-	if cfg.StalenessThreshold > 24*time.Hour {
-		return nil, fmt.Errorf("STALENESS_THRESHOLD must be <= 24h, got %s", cfg.StalenessThreshold)
+	if cfg.GRPCPort < 1 || cfg.GRPCPort > 65535 {
+		return nil, fmt.Errorf("GRPC_PORT must be 1-65535, got %d", cfg.GRPCPort)
+	}
+	if cfg.DBPort < 1 || cfg.DBPort > 65535 {
+		return nil, fmt.Errorf("DB_PORT must be 1-65535, got %d", cfg.DBPort)
+	}
+	if cfg.DailyRefreshCount < 0 {
+		return nil, fmt.Errorf("DAILY_REFRESH_COUNT must be >= 0, got %d", cfg.DailyRefreshCount)
+	}
+	if cfg.ProfileBatchSize < 0 {
+		return nil, fmt.Errorf("PROFILE_BATCH_SIZE must be >= 0, got %d", cfg.ProfileBatchSize)
+	}
+	if cfg.RefreshCheckInterval <= 0 {
+		return nil, fmt.Errorf("REFRESH_CHECK_INTERVAL must be > 0, got %s", cfg.RefreshCheckInterval)
 	}
 
 	return cfg, nil
 }
 
 func (c *Config) PostgresDSN() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.DBUser, c.DBPassword, c.DBHost, c.DBPort, c.DBName, c.DBSSLMode)
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(c.DBUser, c.DBPassword),
+		Host:   fmt.Sprintf("%s:%d", c.DBHost, c.DBPort),
+		Path:   c.DBName,
+	}
+	q := u.Query()
+	q.Set("sslmode", c.DBSSLMode)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func getEnv(key, fallback string) string {

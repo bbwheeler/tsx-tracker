@@ -1,12 +1,14 @@
 // Package refresher runs a background loop that keeps tracked companies'
-// data within the configured staleness threshold (<= 24h per the service
-// requirement), while respecting the upstream free-tier API's rate limits
-// by only refreshing a bounded number of companies per cycle.
+// data within the configured refresh interval. Every cycle it syncs the
+// full TSX symbol list (adding new symbols, removing delisted ones) and
+// refreshes a random subset of eligible companies bounded by the
+// configured daily refresh count.
 package refresher
 
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/example/tsx-tracker/internal/config"
@@ -46,55 +48,84 @@ func (r *Refresher) Run(ctx context.Context) {
 func (r *Refresher) tick(ctx context.Context) {
 	r.log.Info("refresh cycle starting")
 
-	if err := r.discoverNewSymbols(ctx); err != nil {
+	symbols, err := r.discoverSymbols(ctx)
+	if err != nil {
 		r.log.Error("discovering symbols failed", "error", err)
-		// Continue anyway -- we can still refresh whatever's already tracked.
+	} else {
+		if err := r.pruneDelisted(ctx, symbols); err != nil {
+			r.log.Error("pruning delisted symbols failed", "error", err)
+		}
 	}
 
-	if err := r.refreshStale(ctx); err != nil {
-		r.log.Error("refreshing stale companies failed", "error", err)
+	if err := r.refreshRandom(ctx); err != nil {
+		r.log.Error("refreshing random subset failed", "error", err)
 	}
 
 	r.log.Info("refresh cycle complete")
 }
 
-// discoverNewSymbols pulls the current TSX symbol list and inserts stub
-// rows (symbol/name/price only) for any symbol we don't already track,
-// up to cfg.MaxTrackedCompanies. Stub rows get an epoch last_updated so
-// they're picked up first by refreshStale.
-func (r *Refresher) discoverNewSymbols(ctx context.Context) error {
-	symbols, err := r.provider.ListSymbols(ctx)
+// discoverSymbols pulls the current TSX symbol list and inserts stub
+// rows for any symbol we don't already track. Stub rows get an epoch
+// last_updated so they're picked up first by refreshRandom.
+func (r *Refresher) discoverSymbols(ctx context.Context) ([]string, error) {
+	companies, err := r.provider.ListSymbols(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.repo.InsertSymbolStubs(ctx, companies); err != nil {
+		return nil, err
+	}
+
+	symbols := make([]string, len(companies))
+	for i, c := range companies {
+		symbols[i] = c.Symbol
+	}
+	return symbols, nil
+}
+
+// pruneDelisted removes any companies from the database whose symbols
+// are not in the current TSX symbol list returned by the provider.
+// Comparison is case-insensitive to prevent incorrect deletions from
+// casing mismatches between the provider and the database.
+func (r *Refresher) pruneDelisted(ctx context.Context, currentSymbols []string) error {
+	current := make(map[string]struct{}, len(currentSymbols))
+	for _, s := range currentSymbols {
+		current[strings.ToUpper(s)] = struct{}{}
+	}
+
+	tracked, err := r.repo.AllSymbols(ctx)
 	if err != nil {
 		return err
 	}
 
-	if r.cfg.MaxTrackedCompanies > 0 {
-		tracked, err := r.repo.TrackedCount(ctx)
-		if err != nil {
-			return err
-		}
-		room := r.cfg.MaxTrackedCompanies - tracked
-		if room <= 0 {
-			r.log.Info("tracked-company cap reached, skipping symbol discovery",
-				"max_tracked_companies", r.cfg.MaxTrackedCompanies)
-			return nil
-		}
-		if room < len(symbols) {
-			symbols = symbols[:room]
+	var toDelete []string
+	for _, s := range tracked {
+		if _, ok := current[strings.ToUpper(s)]; !ok {
+			toDelete = append(toDelete, s)
 		}
 	}
 
-	return r.repo.InsertSymbolStubs(ctx, symbols)
+	if len(toDelete) == 0 {
+		return nil
+	}
+
+	deleted, err := r.repo.DeleteBySymbols(ctx, toDelete)
+	if err != nil {
+		return err
+	}
+	r.log.Info("pruned delisted symbols", "count", deleted)
+	return nil
 }
 
-// refreshStale fetches full profile data for up to
-// cfg.MaxCompaniesPerRefreshCycle companies whose data is older than
-// cfg.StalenessThreshold, in batches of cfg.ProfileBatchSize per upstream
-// call.
-func (r *Refresher) refreshStale(ctx context.Context) error {
-	cutoff := time.Now().Add(-r.cfg.StalenessThreshold)
+// refreshRandom fetches full profile data for up to
+// cfg.DailyRefreshCount companies whose data is older than
+// cfg.RefreshCheckInterval, selected randomly to spread coverage
+// evenly over time.
+func (r *Refresher) refreshRandom(ctx context.Context) error {
+	cutoff := time.Now().Add(-r.cfg.RefreshCheckInterval)
 
-	stale, err := r.repo.StaleSymbols(ctx, cutoff, r.cfg.MaxCompaniesPerRefreshCycle)
+	stale, err := r.repo.StaleSymbols(ctx, cutoff, r.cfg.DailyRefreshCount)
 	if err != nil {
 		return err
 	}
@@ -102,7 +133,7 @@ func (r *Refresher) refreshStale(ctx context.Context) error {
 		r.log.Info("no stale companies found")
 		return nil
 	}
-	r.log.Info("refreshing stale companies", "count", len(stale))
+	r.log.Info("refreshing random subset", "count", len(stale))
 
 	batchSize := r.cfg.ProfileBatchSize
 	if batchSize <= 0 {
@@ -119,7 +150,7 @@ func (r *Refresher) refreshStale(ctx context.Context) error {
 		profiles, err := r.provider.Profiles(ctx, batch)
 		if err != nil {
 			r.log.Error("fetching profile batch failed", "symbols", batch, "error", err)
-			continue // don't let one bad batch abort the whole cycle
+			continue
 		}
 		if err := r.repo.UpsertCompanies(ctx, profiles); err != nil {
 			r.log.Error("upserting profile batch failed", "symbols", batch, "error", err)

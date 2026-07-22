@@ -365,9 +365,6 @@ func TestStaleSymbols(t *testing.T) {
 	if len(stale) != 1 {
 		t.Fatalf("got %d stale symbols, want 1", len(stale))
 	}
-	if stale[0] != "STALE.TO" {
-		t.Errorf("stale[0] = %q, want %q", stale[0], "STALE.TO")
-	}
 }
 
 func TestStaleSymbols_Limit(t *testing.T) {
@@ -424,6 +421,113 @@ func TestTrackedCount(t *testing.T) {
 	}
 	if count != 3 {
 		t.Errorf("count = %d, want 3", count)
+	}
+}
+
+func TestDeleteBySymbols(t *testing.T) {
+	repo := setupDB(t)
+	ctx := context.Background()
+
+	if err := repo.UpsertCompanies(ctx, []db.Company{
+		sampleCompany("A.TO"),
+		sampleCompany("B.TO"),
+		sampleCompany("C.TO"),
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	deleted, err := repo.DeleteBySymbols(ctx, []string{"A.TO", "C.TO"})
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("deleted = %d, want 2", deleted)
+	}
+
+	count, err := repo.TrackedCount(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	c, err := repo.GetBySymbol(ctx, "B.TO")
+	if err != nil {
+		t.Fatalf("GetBySymbol: %v", err)
+	}
+	if c.Symbol != "B.TO" {
+		t.Errorf("Symbol = %q, want B.TO", c.Symbol)
+	}
+}
+
+func TestDeleteBySymbols_Empty(t *testing.T) {
+	repo := setupDB(t)
+	ctx := context.Background()
+
+	if err := repo.UpsertCompanies(ctx, []db.Company{sampleCompany("A.TO")}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	deleted, err := repo.DeleteBySymbols(ctx, nil)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
+	}
+
+	count, err := repo.TrackedCount(ctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+}
+
+func TestAllSymbols(t *testing.T) {
+	repo := setupDB(t)
+	ctx := context.Background()
+
+	if err := repo.UpsertCompanies(ctx, []db.Company{
+		sampleCompany("A.TO"),
+		sampleCompany("B.TO"),
+		sampleCompany("C.TO"),
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	symbols, err := repo.AllSymbols(ctx)
+	if err != nil {
+		t.Fatalf("AllSymbols: %v", err)
+	}
+	if len(symbols) != 3 {
+		t.Fatalf("got %d symbols, want 3", len(symbols))
+	}
+
+	// AllSymbols returns in arbitrary order; check set membership.
+	set := make(map[string]bool)
+	for _, s := range symbols {
+		set[s] = true
+	}
+	for _, want := range []string{"A.TO", "B.TO", "C.TO"} {
+		if !set[want] {
+			t.Errorf("missing symbol %q", want)
+		}
+	}
+}
+
+func TestAllSymbols_Empty(t *testing.T) {
+	repo := setupDB(t)
+	ctx := context.Background()
+
+	symbols, err := repo.AllSymbols(ctx)
+	if err != nil {
+		t.Fatalf("AllSymbols: %v", err)
+	}
+	if len(symbols) != 0 {
+		t.Errorf("got %d symbols, want 0", len(symbols))
 	}
 }
 

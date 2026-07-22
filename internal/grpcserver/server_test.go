@@ -380,4 +380,101 @@ func TestIntegration_GetAndList(t *testing.T) {
 			t.Errorf("len = %d, want 0", len(resp.Companies))
 		}
 	})
+
+	t.Run("ListCompanies_CaseInsensitiveSectorFilter", func(t *testing.T) {
+		resp, err := client.ListCompanies(ctx, &tsxv1.ListCompaniesRequest{
+			SectorFilter: "technology",
+			PageSize:     10,
+		})
+		if err != nil {
+			t.Fatalf("ListCompanies: %v", err)
+		}
+		if resp.TotalCount != 2 {
+			t.Errorf("TotalCount = %d, want 2", resp.TotalCount)
+		}
+		if len(resp.Companies) != 2 {
+			t.Errorf("len = %d, want 2", len(resp.Companies))
+		}
+	})
+
+	t.Run("ListCompanies_PageSizeZero", func(t *testing.T) {
+		resp, err := client.ListCompanies(ctx, &tsxv1.ListCompaniesRequest{
+			PageSize: 0,
+		})
+		if err != nil {
+			t.Fatalf("ListCompanies: %v", err)
+		}
+		// Should use default page size of 50
+		if len(resp.Companies) != 3 {
+			t.Errorf("len = %d, want 3", len(resp.Companies))
+		}
+	})
+
+	t.Run("GetCompany_AllFieldsReturned", func(t *testing.T) {
+		resp, err := client.GetCompany(ctx, &tsxv1.GetCompanyRequest{Symbol: "A.TO"})
+		if err != nil {
+			t.Fatalf("GetCompany: %v", err)
+		}
+		c := resp.Company
+		if c.Symbol != "A.TO" {
+			t.Errorf("Symbol = %q, want A.TO", c.Symbol)
+		}
+		if c.Name != "Alpha Corp" {
+			t.Errorf("Name = %q, want Alpha Corp", c.Name)
+		}
+		if c.Exchange != "TSX" {
+			t.Errorf("Exchange = %q, want TSX", c.Exchange)
+		}
+		if c.Sector != "Technology" {
+			t.Errorf("Sector = %q, want Technology", c.Sector)
+		}
+		if c.Industry != "Software" {
+			t.Errorf("Industry = %q, want Software", c.Industry)
+		}
+		if c.Ceo != "Alice" {
+			t.Errorf("Ceo = %q, want Alice", c.Ceo)
+		}
+		if c.Description != "First" {
+			t.Errorf("Description = %q, want First", c.Description)
+		}
+		if c.Website != "https://a.com" {
+			t.Errorf("Website = %q, want https://a.com", c.Website)
+		}
+		if c.Headquarters != "Toronto, ON, Canada" {
+			t.Errorf("Headquarters = %q, want Toronto, ON, Canada", c.Headquarters)
+		}
+		if c.Employees != 100 {
+			t.Errorf("Employees = %d, want 100", c.Employees)
+		}
+		if c.MarketCap != 1e9 {
+			t.Errorf("MarketCap = %f, want %f", c.MarketCap, 1e9)
+		}
+		if c.Price != 10 {
+			t.Errorf("Price = %f, want 10", c.Price)
+		}
+		if c.Currency != "CAD" {
+			t.Errorf("Currency = %q, want CAD", c.Currency)
+		}
+		if c.LastUpdated == nil {
+			t.Error("LastUpdated should not be nil")
+		}
+	})
+
+	t.Run("ListCompanies_TotalCountMatchesFilter", func(t *testing.T) {
+		resp, err := client.ListCompanies(ctx, &tsxv1.ListCompaniesRequest{
+			PageSize: 1, // Only get 1, but total should be 2
+		})
+		if err != nil {
+			t.Fatalf("ListCompanies: %v", err)
+		}
+		if resp.TotalCount != 3 {
+			t.Errorf("TotalCount = %d, want 3", resp.TotalCount)
+		}
+		if len(resp.Companies) != 1 {
+			t.Errorf("len = %d, want 1", len(resp.Companies))
+		}
+		if resp.NextPageToken == "" {
+			t.Error("NextPageToken should not be empty")
+		}
+	})
 }

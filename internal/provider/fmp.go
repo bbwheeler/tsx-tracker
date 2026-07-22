@@ -13,6 +13,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,11 @@ import (
 	"time"
 
 	"github.com/example/tsx-tracker/internal/db"
+)
+
+var (
+	ErrMissingAPIKey  = errors.New("API key is required")
+	ErrMissingBaseURL = errors.New("base URL is required")
 )
 
 type Client struct {
@@ -38,6 +44,17 @@ func NewClient(baseURL, apiKey string) *Client {
 			Timeout: 15 * time.Second,
 		},
 	}
+}
+
+// Validate checks that the client has the required configuration.
+func (c *Client) Validate() error {
+	if c.apiKey == "" {
+		return ErrMissingAPIKey
+	}
+	if c.baseURL == "" {
+		return ErrMissingBaseURL
+	}
+	return nil
 }
 
 type symbolListEntry struct {
@@ -131,6 +148,10 @@ func (c *Client) Profiles(ctx context.Context, symbols []string) ([]db.Company, 
 }
 
 func (c *Client) getJSON(ctx context.Context, u string, out any) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err

@@ -1,0 +1,13 @@
+.git
+bin/
+gen/
+*.exe
+*.test
+*.out
+.env
+.env.podman
+.env.*
+.gitignore
+README.md
+description.md
+deploy/

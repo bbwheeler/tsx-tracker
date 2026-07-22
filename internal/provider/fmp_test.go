@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -244,9 +245,9 @@ func TestDefaultStr(t *testing.T) {
 
 func TestJoinNonEmpty(t *testing.T) {
 	tests := []struct {
-		sep  string
+		sep   string
 		parts []string
-		want string
+		want  string
 	}{
 		{", ", []string{"A", "B", "C"}, "A, B, C"},
 		{", ", []string{"A", "", "C"}, "A, C"},
@@ -257,5 +258,184 @@ func TestJoinNonEmpty(t *testing.T) {
 		if got := joinNonEmpty(tt.sep, tt.parts...); got != tt.want {
 			t.Errorf("joinNonEmpty(%q, %v) = %q, want %q", tt.sep, tt.parts, got, tt.want)
 		}
+	}
+}
+
+func TestProfiles_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.Profiles(context.Background(), []string{"TEST.TO"})
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+}
+
+func TestProfiles_RateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.Profiles(context.Background(), []string{"TEST.TO"})
+	if err == nil {
+		t.Fatal("expected error for HTTP 429")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Errorf("error should mention rate limiting: %v", err)
+	}
+}
+
+func TestListSymbols_RateLimited_ErrorMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.ListSymbols(context.Background())
+	if err == nil {
+		t.Fatal("expected error for HTTP 429")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Errorf("error should mention rate limiting: %v", err)
+	}
+}
+
+func TestProfiles_InvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("not valid json{{{"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.Profiles(context.Background(), []string{"TEST.TO"})
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestListSymbols_InvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[invalid"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	_, err := c.ListSymbols(context.Background())
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestListSymbols_ContextCancelled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]symbolListEntry{})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	_, err := c.ListSymbols(ctx)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestProfiles_ContextCancelled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]profileEntry{})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := c.Profiles(ctx, []string{"TEST.TO"})
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestNewClient_Validation(t *testing.T) {
+	// Empty base URL should still create a client (validation happens at request time)
+	c := NewClient("", "key")
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+
+	// Empty API key should still create a client
+	c = NewClient("http://localhost", "")
+	if c == nil {
+		t.Fatal("expected non-nil client")
+	}
+}
+
+func TestListSymbols_EmptyResponse_AllSkipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// All symbols are empty
+		json.NewEncoder(w).Encode([]symbolListEntry{
+			{Symbol: "", Name: "Empty1", Price: 1.0, Exchange: "TSX"},
+			{Symbol: "", Name: "Empty2", Price: 2.0, Exchange: "TSX"},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	symbols, err := c.ListSymbols(context.Background())
+	if err != nil {
+		t.Fatalf("ListSymbols: %v", err)
+	}
+	if len(symbols) != 0 {
+		t.Errorf("got %d symbols, want 0 (all empty)", len(symbols))
+	}
+}
+
+func TestProfiles_MissingFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Return a profile with most fields missing
+		json.NewEncoder(w).Encode([]profileEntry{
+			{
+				Symbol:  "TEST.TO",
+				Price:   10.0,
+				MktCap:  1e6,
+				City:    "Toronto",
+				// No State, Country, FullTimeEmpStr, Currency
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "key")
+	profiles, err := c.Profiles(context.Background(), []string{"TEST.TO"})
+	if err != nil {
+		t.Fatalf("Profiles: %v", err)
+	}
+	if len(profiles) != 1 {
+		t.Fatalf("got %d profiles, want 1", len(profiles))
+	}
+
+	p := profiles[0]
+	if p.Headquarters != "Toronto" {
+		t.Errorf("Headquarters = %q, want %q", p.Headquarters, "Toronto")
+	}
+	if p.Employees != 0 {
+		t.Errorf("Employees = %d, want 0 for missing", p.Employees)
+	}
+	if p.Currency != "CAD" {
+		t.Errorf("Currency = %q, want fallback %q", p.Currency, "CAD")
 	}
 }

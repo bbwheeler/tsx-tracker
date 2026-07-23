@@ -76,7 +76,86 @@ make docker-up
 This starts Postgres and the service together; the Containerfile generates
 the gRPC code and builds the binary in a multi-stage build.
 
-### 3b. Run locally
+### 3b. Deploy with Podman (Debian Linux)
+
+Install Podman:
+```
+sudo apt update
+sudo apt install -y podman podman-compose
+```
+
+Build and run:
+```
+export FMP_API_KEY=your_key_here
+podman-compose up -d --build
+```
+
+To stop and remove:
+```
+podman-compose down -v
+```
+
+To view logs:
+```
+podman-compose logs -f
+```
+
+### 3c. Deploy with Podman Quadlet (rootless, Debian)
+
+Quadlet lets you manage Podman containers as systemd user services — the
+container starts on boot without root.
+
+**Prerequisites:**
+```
+sudo apt update
+sudo apt install -y podman systemd-container
+```
+
+**1. Enable lingering** (so systemd user services run without a login session):
+```
+sudo loginctl enable-linger $USER
+```
+
+**2. Clone the repo and create the environment file:**
+```
+git clone https://github.com/youruser/tsx-tracker.git ~/tsx-tracker
+mkdir -p ~/.config/tsx-tracker
+cp ~/tsx-tracker/.env.podman ~/.config/tsx-tracker/.env.podman
+chmod 600 ~/.config/tsx-tracker/.env.podman
+# Edit and fill in DB_USER, DB_PASSWORD, FMP_API_KEY
+```
+
+**3. Install the Quadlet unit files:**
+```
+mkdir -p ~/.config/containers/systemd
+cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.build ~/.config/containers/systemd/tsx-tracker.build
+cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.container ~/.config/containers/systemd/tsx-tracker.container
+systemctl --user daemon-reload
+```
+
+**4. Build the container image:**
+```
+systemctl --user start tsx-tracker-build.service
+```
+
+**5. Enable and start the service:**
+```
+systemctl --user enable --now tsx-tracker.service
+```
+
+**6. Check status and logs:**
+```
+systemctl --user status tsx-tracker
+podman logs tsx-tracker
+```
+
+The service will start automatically on future logins. To stop it:
+```
+systemctl --user stop tsx-tracker
+systemctl --user disable tsx-tracker
+```
+
+### 3d. Run locally
 ```
 # start a local Postgres, then:
 export $(cat .env | xargs)

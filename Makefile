@@ -1,4 +1,4 @@
-.PHONY: proto proto-protoc tidy run build docker-up docker-down podman-up podman-down podman-build quadlet-install quadlet-build quadlet-enable
+.PHONY: proto proto-protoc tidy run build docker-up docker-down podman-up podman-down podman-build quadlet-install quadlet-enable
 
 # Preferred: generate gRPC/protobuf Go code with buf (https://buf.build).
 # Requires network access to buf's remote plugins (or local protoc plugins,
@@ -48,9 +48,6 @@ quadlet-install:
 	cp -n .env.podman ~/.config/tsx-tracker/.env.podman 2>/dev/null || true
 	chmod 600 ~/.config/tsx-tracker/.env.podman
 	systemctl --user daemon-reload
-
-quadlet-build:
-	systemctl --user start tsx-tracker-build.service
 
 quadlet-enable:
 	systemctl --user enable --now tsx-tracker.service

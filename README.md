@@ -133,17 +133,12 @@ cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.container ~/.config/contain
 systemctl --user daemon-reload
 ```
 
-**4. Build the container image:**
-```
-systemctl --user start tsx-tracker-build.service
-```
-
-**5. Enable and start the service:**
+**4. Enable and start the service** (builds the image automatically on first start):
 ```
 systemctl --user enable --now tsx-tracker.service
 ```
 
-**6. Check status and logs:**
+**5. Check status and logs:**
 ```
 systemctl --user status tsx-tracker
 podman logs tsx-tracker

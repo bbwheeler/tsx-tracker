@@ -1,6 +1,6 @@
 [Container]
 Image=localhost/tsx-tracker:latest
-PublishPort=127.0.0.1:50051:50051
+PublishPort=50051:50051
 EnvironmentFile=/etc/tsx-tracker/.env.podman
 PodmanArgs=--read-only
 PodmanArgs=--tmpfs=/tmp:rw,noexec,nosuid,size=64m

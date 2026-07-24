@@ -8,13 +8,13 @@ tsx-tracker is a Go-based microservice that maintains an up-to-date database of 
 
 ### Data Collection & Discovery
 
-The system discovers TSX-listed companies through the Finnhub free-tier API (`GET /stock/symbol?exchange=TO`). It automatically identifies new symbols and creates records containing basic information (symbol, name, exchange, currency).
+The system discovers TSX-listed companies through the official TMX company directory — a free, public JSON API provided by the Toronto Stock Exchange itself. No API key is required. The service queries `https://www.tsx.com/json/company-directory/search/tsx/{letter}` for each letter A-Z to build the complete symbol list.
 
 ### Background Refresher
 
 A background process runs every 24 hours to:
 
-1. **Discover new symbols** - Pulls the full TSX symbol list from Finnhub and inserts any unknown companies
+1. **Discover new symbols** - Pulls the full TSX symbol list from TMX and inserts any unknown companies
 2. **Prune delisted symbols** - Removes any companies from the database whose symbols are no longer on the TSX
 
 ### Data Storage
@@ -45,7 +45,6 @@ All runtime settings are configurable via environment variables:
 |----------|---------|-------------|
 | `GRPC_PORT` | 50051 | gRPC server port |
 | `DB_HOST/PORT/USER/PASSWORD/NAME/SSLMODE` | various | PostgreSQL connection |
-| `FINNHUB_API_KEY` | required | Finnhub API key (free at finnhub.io) |
 | `REFRESH_CHECK_INTERVAL` | 24h | How often the symbol list is synced |
 
 ### Deployment

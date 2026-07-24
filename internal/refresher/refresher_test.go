@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,12 +65,37 @@ func setupRepo(t *testing.T) *db.Repository {
 	return repo
 }
 
-func testConfig(finnhubURL string) *config.Config {
+func testConfig() *config.Config {
 	return &config.Config{
-		FinnhubAPIKey:        "test",
-		FinnhubBaseURL:       finnhubURL,
 		RefreshCheckInterval: 24 * time.Hour,
 	}
+}
+
+type tsxEntry struct {
+	Symbol string `json:"symbol"`
+	Name   string `json:"name"`
+}
+
+// tsxHandler returns an httptest server that mimics the TMX company
+// directory. symbols maps uppercase letters to the entries returned
+// for that letter; any letter not in the map returns empty results.
+func tsxHandler(t *testing.T, symbols map[string][]tsxEntry) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// URL format: /tsx/{letter}
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 3 {
+			json.NewEncoder(w).Encode(map[string]any{"results": []tsxEntry{}})
+			return
+		}
+		letter := strings.ToUpper(parts[2])
+		entries, ok := symbols[letter]
+		if !ok {
+			entries = []tsxEntry{}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": entries})
+	}))
 }
 
 func TestTick_WithRealRepo(t *testing.T) {
@@ -80,21 +106,26 @@ func TestTick_WithRealRepo(t *testing.T) {
 
 	var listSymbolsCalled bool
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			listSymbolsCalled = true
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "SHOP", "description": "Shopify Inc.", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"S": {{Symbol: "SHOP", Name: "Shopify Inc."}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	// Intercept to track calls.
+	orig := srv.Client()
+	_ = orig
+
+	// Wrap to track calls.
+	wrapper := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/tsx/") {
+			listSymbolsCalled = true
+		}
+		srv.Config.Handler.ServeHTTP(w, r)
+	}))
+	defer wrapper.Close()
+
+	cfg := testConfig()
+	p := provider.NewClientForTest(wrapper.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -138,20 +169,13 @@ func TestTick_PruneDelisted(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "A", "description": "Active Corp", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"A": {{Symbol: "A", Name: "Active Corp"}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -181,13 +205,13 @@ func TestTick_SymbolsAPIError(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
-	defer finnhub.Close()
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -209,14 +233,11 @@ func TestTick_ContextCancellation(t *testing.T) {
 	repo := setupRepo(t)
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]map[string]any{})
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -243,22 +264,15 @@ func TestTick_MultipleSymbols(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "SHOP", "description": "Shopify Inc.", "type": "Common Stock"},
-				{"symbol": "RY", "description": "Royal Bank", "type": "Common Stock"},
-				{"symbol": "TD", "description": "Toronto-Dominion Bank", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"S": {{Symbol: "SHOP", Name: "Shopify Inc."}},
+		"R": {{Symbol: "RY", Name: "Royal Bank"}},
+		"T": {{Symbol: "TD", Name: "Toronto-Dominion Bank"}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -295,20 +309,13 @@ func TestTick_IdempotentSymbols(t *testing.T) {
 		t.Fatalf("insert stub: %v", err)
 	}
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "EXISTING", "description": "Existing Corp", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"E": {{Symbol: "EXISTING", Name: "Existing Corp"}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -338,20 +345,13 @@ func TestTick_SymbolSync_CaseInsensitive(t *testing.T) {
 		t.Fatalf("insert stub: %v", err)
 	}
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "sym", "description": "Symbol Corp", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"S": {{Symbol: "sym", Name: "Symbol Corp"}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -381,18 +381,11 @@ func TestTick_SymbolSync_EmptyList(t *testing.T) {
 		t.Fatalf("insert stub: %v", err)
 	}
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -423,21 +416,14 @@ func TestTick_SymbolSync_PrunesAndAdds(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/stock/symbol" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "KEEP", "description": "Keep Corp", "type": "Common Stock"},
-				{"symbol": "ADD", "description": "Add Corp", "type": "Common Stock"},
-			})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer finnhub.Close()
+	srv := tsxHandler(t, map[string][]tsxEntry{
+		"K": {{Symbol: "KEEP", Name: "Keep Corp"}},
+		"A": {{Symbol: "ADD", Name: "Add Corp"}},
+	})
+	defer srv.Close()
 
-	cfg := testConfig(finnhub.URL)
-	p := provider.NewClient(finnhub.URL, "test")
+	cfg := testConfig()
+	p := provider.NewClientForTest(srv.URL)
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)

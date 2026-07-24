@@ -11,37 +11,35 @@ import (
 
 func TestListSymbols_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/stock/symbol" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
-		if r.URL.Query().Get("exchange") != "TO" {
-			t.Errorf("unexpected exchange: %s", r.URL.Query().Get("exchange"))
-		}
-		if r.URL.Query().Get("token") != "test-key" {
-			t.Errorf("unexpected token: %s", r.URL.Query().Get("token"))
-		}
+		letter := strings.TrimPrefix(r.URL.Path, "/")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]symbolEntry{
-			{Symbol: "SHOP", Description: "Shopify Inc.", Type: "Common Stock"},
-			{Symbol: "RY", Description: "Royal Bank", Type: "Common Stock"},
-			{Symbol: "", Description: "Empty Symbol", Type: "Common Stock"},
-		})
+		switch letter {
+		case "A":
+			json.NewEncoder(w).Encode(tsxResponse{
+				Results: []tsxEntry{
+					{Symbol: "AC", Name: "Air Canada"},
+					{Symbol: "ATD", Name: "Alimentation Couche-Tard Inc."},
+				},
+			})
+		default:
+			json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
+		}
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "test-key")
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
 	symbols, err := c.ListSymbols(context.Background())
 	if err != nil {
 		t.Fatalf("ListSymbols: %v", err)
 	}
 	if len(symbols) != 2 {
-		t.Fatalf("got %d symbols, want 2 (empty symbol filtered)", len(symbols))
+		t.Fatalf("got %d symbols, want 2", len(symbols))
 	}
-	if symbols[0].Symbol != "SHOP" {
-		t.Errorf("symbols[0].Symbol = %q, want %q", symbols[0].Symbol, "SHOP")
+	if symbols[0].Symbol != "AC" {
+		t.Errorf("symbols[0].Symbol = %q, want %q", symbols[0].Symbol, "AC")
 	}
-	if symbols[0].Name != "Shopify Inc." {
-		t.Errorf("symbols[0].Name = %q, want %q", symbols[0].Name, "Shopify Inc.")
+	if symbols[0].Name != "Air Canada" {
+		t.Errorf("symbols[0].Name = %q, want %q", symbols[0].Name, "Air Canada")
 	}
 	if symbols[0].Exchange != "TSX" {
 		t.Errorf("symbols[0].Exchange = %q, want %q", symbols[0].Exchange, "TSX")
@@ -54,11 +52,11 @@ func TestListSymbols_Success(t *testing.T) {
 func TestListSymbols_EmptyResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("[]"))
+		w.Write([]byte(`{"results":[]}`))
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
 	symbols, err := c.ListSymbols(context.Background())
 	if err != nil {
 		t.Fatalf("ListSymbols: %v", err)
@@ -74,34 +72,10 @@ func TestListSymbols_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
 	_, err := c.ListSymbols(context.Background())
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
-	}
-}
-
-func TestListSymbols_RateLimited(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	defer srv.Close()
-
-	c := NewClient(srv.URL, "key")
-	_, err := c.ListSymbols(context.Background())
-	if err == nil {
-		t.Fatal("expected error for HTTP 429")
-	}
-	if !strings.Contains(err.Error(), "rate limited") {
-		t.Errorf("error should mention rate limiting: %v", err)
-	}
-}
-
-func TestListSymbols_EmptyAPIKey(t *testing.T) {
-	c := NewClient("http://unused", "")
-	_, err := c.ListSymbols(context.Background())
-	if err == nil {
-		t.Fatal("expected error for empty API key")
 	}
 }
 
@@ -112,7 +86,7 @@ func TestListSymbols_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
 	_, err := c.ListSymbols(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -122,16 +96,44 @@ func TestListSymbols_InvalidJSON(t *testing.T) {
 func TestListSymbols_ContextCancelled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]symbolEntry{})
+		json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "key")
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	_, err := c.ListSymbols(ctx)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestListSymbols_SkipsEmptySymbols(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		letter := strings.TrimPrefix(r.URL.Path, "/")
+		if letter == "G" {
+			json.NewEncoder(w).Encode(tsxResponse{
+				Results: []tsxEntry{
+					{Symbol: "GOOD", Name: "Good Corp"},
+					{Symbol: "", Name: "Empty Symbol"},
+					{Symbol: "ALSO_GOOD", Name: "Also Good Corp"},
+				},
+			})
+		} else {
+			json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
+		}
+	}))
+	defer srv.Close()
+
+	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
+	symbols, err := c.ListSymbols(context.Background())
+	if err != nil {
+		t.Fatalf("ListSymbols: %v", err)
+	}
+	if len(symbols) != 2 {
+		t.Fatalf("got %d symbols, want 2 (empty filtered)", len(symbols))
 	}
 }

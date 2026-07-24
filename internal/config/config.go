@@ -1,6 +1,6 @@
 // Package config centralizes all runtime configuration, loaded from
-// environment variables so the service (database, refresh cadence, API
-// keys, etc.) is fully configurable without code changes.
+// environment variables so the service (database, refresh cadence, etc.)
+// is fully configurable without code changes.
 package config
 
 import (
@@ -23,10 +23,6 @@ type Config struct {
 	DBName     string
 	DBSSLMode  string
 
-	// Data provider (Finnhub)
-	FinnhubAPIKey  string
-	FinnhubBaseURL string
-
 	// Refresh behaviour
 	RefreshCheckInterval time.Duration
 }
@@ -41,15 +37,9 @@ func Load() (*Config, error) {
 		DBName:     getEnv("DB_NAME", "tsx_tracker"),
 		DBSSLMode:  getEnv("DB_SSLMODE", "disable"),
 
-		FinnhubAPIKey:  getEnv("FINNHUB_API_KEY", ""),
-		FinnhubBaseURL: getEnv("FINNHUB_BASE_URL", "https://finnhub.io/api/v1"),
-
 		RefreshCheckInterval: getEnvDuration("REFRESH_CHECK_INTERVAL", 24*time.Hour),
 	}
 
-	if cfg.FinnhubAPIKey == "" {
-		return nil, fmt.Errorf("FINNHUB_API_KEY is required (get a free key at https://finnhub.io/)")
-	}
 	if cfg.GRPCPort < 1 || cfg.GRPCPort > 65535 {
 		return nil, fmt.Errorf("GRPC_PORT must be 1-65535, got %d", cfg.GRPCPort)
 	}

@@ -54,12 +54,12 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("database ready")
 
-	finnhubClient := provider.NewClient(cfg.FinnhubBaseURL, cfg.FinnhubAPIKey)
+	tsxClient := provider.NewClient()
 
-	// Background loop that keeps company data fresh. Runs an immediate
-	// sync on startup, then on cfg.RefreshCheckInterval.
+	// Background loop that keeps the TSX symbol list fresh. Runs an
+	// immediate sync on startup, then on cfg.RefreshCheckInterval.
 	var wg sync.WaitGroup
-	ref := refresher.New(cfg, repo, finnhubClient, log)
+	ref := refresher.New(cfg, repo, tsxClient, log)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

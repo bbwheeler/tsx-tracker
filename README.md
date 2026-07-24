@@ -11,7 +11,7 @@ listings and removing delisted companies.
 cmd/server/main.go        wires everything together, starts the gRPC server
 internal/config           env-var configuration (DB, refresh cadence, API key)
 internal/db               Postgres repository (schema, upsert, query, pagination)
-internal/provider         Finnhub API client (TSX symbol list)
+internal/provider         TMX company directory client (TSX symbol list, no API key)
 internal/refresher        background loop syncing symbols + refreshing random subsets
 internal/grpcserver       gRPC service implementation
 proto/tsx/v1/tsx.proto    gRPC API definition
@@ -34,32 +34,30 @@ case. The DB connection is fully configurable via env vars (`DB_HOST`,
 
 ### Where the data comes from
 
-[Finnhub](https://finnhub.io/) has a free-tier REST API with:
-- a stock symbols by exchange endpoint (`GET /stock/symbol?exchange=TO`) —
-  returns all listed TSX symbols with name, type, and FIGI identifier
+The service uses the **official TMX company directory** — a free, public
+JSON API provided by the Toronto Stock Exchange itself. No API key is
+required.
 
-The free tier allows 60 requests per minute with no credit card required.
-The service only needs one API call per sync cycle to get the full TSX
-symbol list.
+The endpoint `https://www.tsx.com/json/company-directory/search/tsx/{letter}`
+returns all TSX-listed companies for each letter A-Z. The service queries
+all 26 letters once per sync cycle to build the complete symbol list.
 
 Every cycle the full TSX symbol list is synced — new listings are added
 and delisted symbols are removed.
 
 ## Running it
 
-### 1. Get a free API key
-Sign up at https://finnhub.io/ and grab your API key (no credit card required).
-
-### 2. Generate the gRPC code
+### 1. Generate the gRPC code
 ```
-cp .env.example .env   # fill in FINNHUB_API_KEY at minimum
+cp .env.example .env   # edit DB credentials
 make proto             # requires buf (https://buf.build), or:
 make proto-protoc      # requires local protoc + protoc-gen-go + protoc-gen-go-grpc
 ```
 
 ### 3a. Run with Docker Compose (recommended)
 ```
-export FINNHUB_API_KEY=your_key_here
+export DB_USER=postgres
+export DB_PASSWORD=your_password
 make docker-up
 ```
 This starts Postgres and the service together; the Containerfile generates
@@ -75,7 +73,8 @@ sudo apt install -y podman podman-compose
 
 Build and run:
 ```
-export FINNHUB_API_KEY=your_key_here
+export DB_USER=postgres
+export DB_PASSWORD=your_password
 podman-compose up -d --build
 ```
 
@@ -125,7 +124,7 @@ installs the env file to `~/.config/tsx-tracker/.env.podman`, and runs
 $EDITOR ~/.config/tsx-tracker/.env.podman
 ```
 
-Fill in `DB_USER`, `DB_PASSWORD`, and `FINNHUB_API_KEY` at minimum. See
+Fill in `DB_USER` and `DB_PASSWORD`. See
 `.env.podman` in the repo for all available settings.
 
 **3. Build the container image:**

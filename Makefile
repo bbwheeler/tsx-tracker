@@ -49,7 +49,7 @@ quadlet-install:
 	systemctl --user daemon-reload
 
 quadlet-build:
-	podman build -t localhost/tsx-tracker:latest .
+	podman build --no-cache -t localhost/tsx-tracker:latest .
 
 quadlet-enable: quadlet-build
 	systemctl --user daemon-reload

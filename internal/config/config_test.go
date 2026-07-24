@@ -7,8 +7,6 @@ import (
 )
 
 func TestLoad_Defaults(t *testing.T) {
-	t.Setenv("FINNHUB_API_KEY", "test-key-123")
-
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -34,12 +32,6 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.DBSSLMode != "disable" {
 		t.Errorf("DBSSLMode = %q, want %q", cfg.DBSSLMode, "disable")
 	}
-	if cfg.FinnhubAPIKey != "test-key-123" {
-		t.Errorf("FinnhubAPIKey = %q, want %q", cfg.FinnhubAPIKey, "test-key-123")
-	}
-	if cfg.FinnhubBaseURL != "https://finnhub.io/api/v1" {
-		t.Errorf("FinnhubBaseURL = %q, want %q", cfg.FinnhubBaseURL, "https://finnhub.io/api/v1")
-	}
 	if cfg.RefreshCheckInterval != 24*time.Hour {
 		t.Errorf("RefreshCheckInterval = %s, want %s", cfg.RefreshCheckInterval, 24*time.Hour)
 	}
@@ -47,8 +39,6 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_CustomValues(t *testing.T) {
 	env := map[string]string{
-		"FINNHUB_API_KEY":        "custom-key",
-		"FINNHUB_BASE_URL":       "http://localhost:8080",
 		"GRPC_PORT":              "9999",
 		"DB_HOST":                "db.example.com",
 		"DB_PORT":                "5433",
@@ -87,26 +77,12 @@ func TestLoad_CustomValues(t *testing.T) {
 	if cfg.DBSSLMode != "require" {
 		t.Errorf("DBSSLMode = %q, want %q", cfg.DBSSLMode, "require")
 	}
-	if cfg.FinnhubAPIKey != "custom-key" {
-		t.Errorf("FinnhubAPIKey = %q, want %q", cfg.FinnhubAPIKey, "custom-key")
-	}
-	if cfg.FinnhubBaseURL != "http://localhost:8080" {
-		t.Errorf("FinnhubBaseURL = %q, want %q", cfg.FinnhubBaseURL, "http://localhost:8080")
-	}
 	if cfg.RefreshCheckInterval != 12*time.Hour {
 		t.Errorf("RefreshCheckInterval = %s, want %s", cfg.RefreshCheckInterval, 12*time.Hour)
 	}
 }
 
-func TestLoad_MissingAPIKey(t *testing.T) {
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for missing FINNHUB_API_KEY")
-	}
-}
-
 func TestLoad_InvalidInt(t *testing.T) {
-	t.Setenv("FINNHUB_API_KEY", "key")
 	t.Setenv("GRPC_PORT", "not-a-number")
 	cfg, err := Load()
 	if err != nil {
@@ -118,7 +94,6 @@ func TestLoad_InvalidInt(t *testing.T) {
 }
 
 func TestLoad_InvalidDuration(t *testing.T) {
-	t.Setenv("FINNHUB_API_KEY", "key")
 	t.Setenv("REFRESH_CHECK_INTERVAL", "not-a-duration")
 	cfg, err := Load()
 	if err != nil {
@@ -160,7 +135,6 @@ func TestPostgresDSN_SpecialChars(t *testing.T) {
 }
 
 func TestLoad_InvalidGRPCPort(t *testing.T) {
-	t.Setenv("FINNHUB_API_KEY", "key")
 	t.Setenv("GRPC_PORT", "99999")
 	_, err := Load()
 	if err == nil {
@@ -169,7 +143,6 @@ func TestLoad_InvalidGRPCPort(t *testing.T) {
 }
 
 func TestLoad_InvalidDBPort(t *testing.T) {
-	t.Setenv("FINNHUB_API_KEY", "key")
 	t.Setenv("DB_PORT", "-1")
 	_, err := Load()
 	if err == nil {

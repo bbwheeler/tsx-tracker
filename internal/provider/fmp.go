@@ -1,89 +1,84 @@
-// Package provider fetches TSX ticker symbols from Finnhub's free API.
-// Finnhub provides a stock-symbols-by-exchange endpoint that returns
-// all listed symbols for a given exchange. This is the only data source
-// the service needs — just an up-to-date list of TSX ticker symbols.
+// Package provider fetches TSX ticker symbols from the official TMX
+// company directory JSON API. No API key is required — this is a
+// public endpoint provided by the Toronto Stock Exchange.
 package provider
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/example/tsx-tracker/internal/db"
 )
 
-var (
-	ErrMissingAPIKey  = errors.New("API key is required")
-	ErrMissingBaseURL = errors.New("base URL is required")
-)
+const defaultBaseURL = "https://www.tsx.com/json/company-directory/search/tsx/*"
+
+type tsxResponse struct {
+	Results []tsxEntry `json:"results"`
+}
+
+type tsxEntry struct {
+	Symbol string `json:"symbol"`
+	Name   string `json:"name"`
+}
 
 type Client struct {
 	baseURL    string
-	apiKey     string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL, apiKey string) *Client {
+func NewClient() *Client {
+	return &Client{
+		baseURL:    defaultBaseURL,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+// NewClientForTest creates a client pointing at a custom base URL.
+// Used in tests to mock the TMX API.
+func NewClientForTest(baseURL string) *Client {
 	return &Client{
 		baseURL:    baseURL,
-		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
-type symbolEntry struct {
-	Symbol      string `json:"symbol"`
-	Description string `json:"description"`
-	Type        string `json:"type"`
-}
-
 // ListSymbols returns every stock symbol listed on the Toronto Stock
-// Exchange (TSX). Finnhub uses exchange code "TO" for TSX.
+// Exchange (TSX) by querying the official TMX company directory.
 func (c *Client) ListSymbols(ctx context.Context) ([]db.Company, error) {
-	if c.apiKey == "" {
-		return nil, ErrMissingAPIKey
-	}
-
-	u := fmt.Sprintf("%s/stock/symbol?exchange=TO&token=%s", c.baseURL, url.QueryEscape(c.apiKey))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("list TSX symbols: %w", err)
+		return nil, fmt.Errorf("fetch TSX symbols: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("rate limited by upstream API (HTTP 429)")
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream API returned HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("TMX returned HTTP %d", resp.StatusCode)
 	}
 
-	const maxBodySize = 10 << 20
-	var entries []symbolEntry
+	const maxBodySize = 20 << 20
+	var tsxResp tsxResponse
 	dec := json.NewDecoder(io.LimitReader(resp.Body, maxBodySize))
-	if err := dec.Decode(&entries); err != nil {
+	if err := dec.Decode(&tsxResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
-	out := make([]db.Company, 0, len(entries))
-	for _, e := range entries {
+	out := make([]db.Company, 0, len(tsxResp.Results))
+	for _, e := range tsxResp.Results {
 		if e.Symbol == "" {
 			continue
 		}
 		out = append(out, db.Company{
 			Symbol:   e.Symbol,
-			Name:     e.Description,
+			Name:     e.Name,
 			Exchange: "TSX",
 			Currency: "CAD",
 		})

@@ -8,7 +8,6 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/example/tsx-tracker/internal/db"
 
@@ -57,15 +56,15 @@ func (s *Server) ListCompanies(ctx context.Context, req *tsxv1.ListCompaniesRequ
 		pageSize = maxPageSize
 	}
 
-	companies, err := s.repo.List(ctx, req.GetSectorFilter(), req.GetPageToken(), pageSize)
+	companies, err := s.repo.List(ctx, req.GetPageToken(), pageSize)
 	if err != nil {
 		s.log.Error("ListCompanies failed", "error", err)
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
-	total, err := s.repo.CountBySector(ctx, req.GetSectorFilter())
+	total, err := s.repo.Count(ctx)
 	if err != nil {
-		s.log.Error("CountBySector failed", "error", err)
+		s.log.Error("Count failed", "error", err)
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
@@ -87,19 +86,9 @@ func (s *Server) ListCompanies(ctx context.Context, req *tsxv1.ListCompaniesRequ
 
 func toProto(c *db.Company) *tsxv1.Company {
 	return &tsxv1.Company{
-		Symbol:       c.Symbol,
-		Name:         c.Name,
-		Exchange:     c.Exchange,
-		Sector:       c.Sector,
-		Industry:     c.Industry,
-		Ceo:          c.CEO,
-		Description:  c.Description,
-		Website:      c.Website,
-		Headquarters: c.Headquarters,
-		Employees:    c.Employees,
-		MarketCap:    c.MarketCap,
-		Price:        c.Price,
-		Currency:     c.Currency,
-		LastUpdated:  timestamppb.New(c.LastUpdated),
+		Symbol:   c.Symbol,
+		Name:     c.Name,
+		Exchange: c.Exchange,
+		Currency: c.Currency,
 	}
 }

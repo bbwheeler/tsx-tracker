@@ -105,38 +105,57 @@ podman-compose logs -f
 Quadlet lets you manage Podman containers as systemd user services — the
 container starts on boot without root.
 
-**Prerequisites:**
+**Prerequisites — install Podman and set up lingering:**
 ```
 sudo apt update
 sudo apt install -y podman systemd-container
-```
-
-**1. Enable lingering** (so systemd user services run without a login session):
-```
 sudo loginctl enable-linger $USER
 ```
 
-**2. Clone the repo and create the environment file:**
+Lingering lets systemd user services (including this container) run
+without an active login session.
+
+**External Postgres:** The service connects to a PostgreSQL instance
+configured via environment variables. Make sure a Postgres server is
+reachable at the host/port you specify in the env file (default
+`DB_HOST=192.168.1.31:5432`). The database `tsx_tracker` must exist.
+
+**1. Clone the repo and install:**
 ```
 git clone https://github.com/youruser/tsx-tracker.git ~/tsx-tracker
-mkdir -p ~/.config/tsx-tracker
-cp ~/tsx-tracker/.env.podman ~/.config/tsx-tracker/.env.podman
-chmod 600 ~/.config/tsx-tracker/.env.podman
-# Edit and fill in DB_USER, DB_PASSWORD, FMP_API_KEY
+cd ~/tsx-tracker
+make quadlet-install
 ```
 
-**3. Install the Quadlet unit files:**
+This copies the Quadlet unit file to `~/.config/containers/systemd/`,
+installs the env file to `~/.config/tsx-tracker/.env.podman`, and runs
+`systemctl --user daemon-reload`.
+
+**2. Edit the environment file** with your credentials:
 ```
-mkdir -p ~/.config/containers/systemd
-cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless-build.service ~/.config/containers/systemd/tsx-tracker-build.service
-cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.container ~/.config/containers/systemd/tsx-tracker.container
-systemctl --user daemon-reload
+$EDITOR ~/.config/tsx-tracker/.env.podman
 ```
 
-**4. Enable and start the service** (builds the image automatically on first start):
+Fill in `DB_USER`, `DB_PASSWORD`, and `FMP_API_KEY` at minimum. See
+`.env.podman` in the repo for all available settings.
+
+**3. Build the container image:**
 ```
-systemctl --user enable --now tsx-tracker.service
+make quadlet-build
 ```
+
+Or equivalently:
+```
+podman build -t localhost/tsx-tracker:latest .
+```
+
+**4. Start the service:**
+```
+systemctl --user start tsx-tracker.service
+```
+
+The `WantedBy=default.target` in the `.container` file ensures the
+service starts automatically on boot.
 
 **5. Check status and logs:**
 ```
@@ -144,10 +163,23 @@ systemctl --user status tsx-tracker
 podman logs tsx-tracker
 ```
 
-The service will start automatically on future logins. To stop it:
+**Stopping:**
 ```
 systemctl --user stop tsx-tracker
-systemctl --user disable tsx-tracker
+```
+
+To prevent auto-start on boot, remove the wants symlink:
+```
+rm ~/.config/systemd/user/default.target.wants/tsx-tracker.service
+systemctl --user daemon-reload
+```
+
+**Updating:** pull new code, rebuild, and restart:
+```
+cd ~/tsx-tracker
+git pull
+make quadlet-build
+systemctl --user restart tsx-tracker
 ```
 
 ### 3d. Run locally

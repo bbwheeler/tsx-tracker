@@ -1,13 +1,14 @@
 [Container]
 Image=localhost/tsx-tracker:latest
-PublishPort=50051:50051
+PublishPort=127.0.0.1:50051:50051
 EnvironmentFile=%h/.config/tsx-tracker/.env.podman
-AutoUpdate=local
+PodmanArgs=--read-only
+PodmanArgs=--tmpfs=/tmp:rw,noexec,nosuid,size=64m
+AutoUpdate=registry
 
 [Service]
-Requires=tsx-tracker-build.service
-After=tsx-tracker-build.service
 Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=default.target

@@ -1,0 +1,4 @@
+[Build]
+File=%h/tsx-tracker/Containerfile
+SetWorkingDirectory=%h/tsx-tracker
+ImageTag=localhost/tsx-tracker:latest

@@ -9,10 +9,10 @@ listings and removing delisted companies.
 
 ```
 cmd/server/main.go        wires everything together, starts the gRPC server
-internal/config           env-var configuration (DB, refresh cadence, API key)
+internal/config           env-var configuration (DB, refresh cadence)
 internal/db               Postgres repository (schema, upsert, query, pagination)
 internal/provider         TMX company directory client (TSX symbol list, no API key)
-internal/refresher        background loop syncing symbols + refreshing random subsets
+internal/refresher        background loop syncing symbols + pruning delisted
 internal/grpcserver       gRPC service implementation
 proto/tsx/v1/tsx.proto    gRPC API definition
 gen/tsx/v1                generated protobuf/gRPC Go code (run `make proto` first)
@@ -22,15 +22,14 @@ migrations/0001_init.sql  Postgres schema (embedded in internal/db/)
 ### Why PostgreSQL
 
 The task allows Cassandra, MongoDB, or Postgres. Company records here are a
-fixed, relational schema (symbol, name, CEO, sector, financial fields) with
-two access patterns: exact-match lookup by primary key (symbol) and
-filtered/paginated scans (by sector). That's a textbook relational
-workload — Postgres gives strong consistency, indexed lookups, and simple
-upserts (`ON CONFLICT`) with far less operational overhead than running
-Cassandra (built for massive write throughput across many nodes) or
-MongoDB (best when the schema is genuinely variable/nested) for this use
-case. The DB connection is fully configurable via env vars (`DB_HOST`,
-`DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`).
+fixed, relational schema (symbol, name, exchange, currency) with one
+access pattern: exact-match lookup by primary key (symbol). That's a
+textbook relational workload — Postgres gives strong consistency, indexed
+lookups, and simple upserts (`ON CONFLICT`) with far less operational
+overhead than running Cassandra (built for massive write throughput across
+many nodes) or MongoDB (best when the schema is genuinely variable/nested)
+for this use case. The DB connection is fully configurable via env vars
+(`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`).
 
 ### Where the data comes from
 
@@ -38,9 +37,9 @@ The service uses the **official TMX company directory** — a free, public
 JSON API provided by the Toronto Stock Exchange itself. No API key is
 required.
 
-The endpoint `https://www.tsx.com/json/company-directory/search/tsx/{letter}`
-returns all TSX-listed companies for each letter A-Z. The service queries
-all 26 letters once per sync cycle to build the complete symbol list.
+The endpoint `https://www.tsx.com/json/company-directory/search/tsx/*`
+returns all TSX-listed companies in a single request. The service queries
+this once per sync cycle to build the complete symbol list.
 
 Every cycle the full TSX symbol list is synced — new listings are added
 and delisted symbols are removed.
@@ -197,14 +196,12 @@ service CompanyService {
 ```
 
 - `ListCompanies` — paginated (keyset pagination via `page_token`, default
-  page size 50, max 500), with an optional exact `sector_filter`.
+  page size 50, max 500).
 - `GetCompany` — fetch one company by `symbol` (case-insensitive). Returns
   a `NOT_FOUND` gRPC status if the symbol isn't tracked.
 
 See `proto/tsx/v1/tsx.proto` for full message definitions, including the
-`Company` message (symbol, name, exchange, sector, industry, ceo,
-description, website, headquarters, employees, market_cap, price,
-currency, last_updated).
+`Company` message (symbol, name, exchange, currency).
 
 ## Notes / next steps for production use
 

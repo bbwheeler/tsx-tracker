@@ -163,8 +163,8 @@ func TestTick_PruneDelisted(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if err := repo.UpsertCompanies(ctx, []db.Company{
-		{Symbol: "A", Name: "Active Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
-		{Symbol: "B", Name: "Delisted Corp", Exchange: "TSX", Price: 5, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "A", Name: "Active Corp", Exchange: "TSX", Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "B", Name: "Delisted Corp", Exchange: "TSX", Currency: "CAD", LastUpdated: time.Now()},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestTick_IdempotentSymbols(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "EXISTING", Name: "Existing Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "EXISTING", Name: "Existing Corp", Exchange: "TSX", Currency: "CAD", LastUpdated: time.Now()},
 	}); err != nil {
 		t.Fatalf("insert stub: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestTick_SymbolSync_CaseInsensitive(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "SYM", Name: "Symbol Corp", Exchange: "TSX", Price: 10, Currency: "CAD"},
+		{Symbol: "SYM", Name: "Symbol Corp", Exchange: "TSX", Currency: "CAD"},
 	}); err != nil {
 		t.Fatalf("insert stub: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestTick_SymbolSync_EmptyList(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "WILL_BE_GONE", Name: "Gone Corp", Exchange: "TSX", Price: 10, Currency: "CAD"},
+		{Symbol: "WILL_BE_GONE", Name: "Gone Corp", Exchange: "TSX", Currency: "CAD"},
 	}); err != nil {
 		t.Fatalf("insert stub: %v", err)
 	}
@@ -410,8 +410,8 @@ func TestTick_SymbolSync_PrunesAndAdds(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	if err := repo.UpsertCompanies(ctx, []db.Company{
-		{Symbol: "KEEP", Name: "Keep Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
-		{Symbol: "DROP", Name: "Drop Corp", Exchange: "TSX", Price: 20, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "KEEP", Name: "Keep Corp", Exchange: "TSX", Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "DROP", Name: "Drop Corp", Exchange: "TSX", Currency: "CAD", LastUpdated: time.Now()},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

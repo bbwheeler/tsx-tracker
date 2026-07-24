@@ -8,7 +8,7 @@ tsx-tracker is a Go-based microservice that maintains an up-to-date database of 
 
 ### Data Collection & Discovery
 
-The system discovers TSX-listed companies through the official TMX company directory — a free, public JSON API provided by the Toronto Stock Exchange itself. No API key is required. The service queries `https://www.tsx.com/json/company-directory/search/tsx/{letter}` for each letter A-Z to build the complete symbol list.
+The system discovers TSX-listed companies through the official TMX company directory — a free, public JSON API provided by the Toronto Stock Exchange itself. No API key is required. The service queries `https://www.tsx.com/json/company-directory/search/tsx/*` to get all TSX symbols in a single request.
 
 ### Background Refresher
 
@@ -22,8 +22,7 @@ A background process runs every 24 hours to:
 Company data is persisted in PostgreSQL with the following schema:
 
 - **Primary key**: stock symbol (unique, case-insensitive lookups)
-- **Indexed fields**: sector (for filtered queries), last_updated (for staleness checks)
-- **Company fields**: name, exchange, sector, industry, CEO, description, website, headquarters, employees, market_cap, price, currency, last_updated
+- **Fields**: name, exchange, currency, last_updated
 
 ### gRPC API
 
@@ -34,8 +33,7 @@ The service exposes a `CompanyService` with two RPCs:
 2. **ListCompanies** - Returns a paginated list of companies with:
    - Keyset pagination (cursor-based via symbol)
    - Configurable page size (default: 50, max: 500)
-   - Optional sector filtering (case-insensitive exact match)
-   - Total count of matching companies
+   - Total count of companies
 
 ### Configuration
 

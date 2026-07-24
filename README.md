@@ -2,9 +2,8 @@
 
 A Go service that tracks companies listed on the Toronto Stock Exchange
 (TSX) in a PostgreSQL database, keeps their data fresh, and exposes it
-over gRPC. Every 24 hours it syncs the full TSX symbol list (adding new
-listings, removing delisted companies) and refreshes a random subset of
-companies with complete profile data.
+over gRPC. Every 24 hours it syncs the full TSX symbol list — adding new
+listings and removing delisted companies.
 
 ## Architecture
 
@@ -12,7 +11,7 @@ companies with complete profile data.
 cmd/server/main.go        wires everything together, starts the gRPC server
 internal/config           env-var configuration (DB, refresh cadence, API key)
 internal/db               Postgres repository (schema, upsert, query, pagination)
-internal/provider         Financial Modeling Prep API client (symbol list + profiles)
+internal/provider         Finnhub API client (TSX symbol list)
 internal/refresher        background loop syncing symbols + refreshing random subsets
 internal/grpcserver       gRPC service implementation
 proto/tsx/v1/tsx.proto    gRPC API definition
@@ -35,42 +34,32 @@ case. The DB connection is fully configurable via env vars (`DB_HOST`,
 
 ### Where the data comes from
 
-[Financial Modeling Prep](https://site.financialmodelingprep.com/) has a
-free-tier REST API with:
-- an exchange symbol list endpoint (`/api/v3/symbol/TSX`) — symbol, name, price
-- a company profile endpoint (`/api/v3/profile/{symbols}`) — CEO, sector,
-  industry, description, website, headquarters, employee count, market cap
+[Finnhub](https://finnhub.io/) has a free-tier REST API with:
+- a stock symbols by exchange endpoint (`GET /stock/symbol?exchange=TO`) —
+  returns all listed TSX symbols with name, type, and FIGI identifier
 
-Both are usable with a free API key (sign up, no payment required).
+The free tier allows 60 requests per minute with no credit card required.
+The service only needs one API call per sync cycle to get the full TSX
+symbol list.
 
-**Free-tier tradeoff:** the TSX lists well over 1,500 companies, and free
-API tiers rate-limit requests per day. Fetching full fundamentals for the
-entire TSX universe in a single cycle isn't realistic on a free plan. The
-service handles this by refreshing a random subset (`DAILY_REFRESH_COUNT`,
-default 50) per cycle, in small upstream batches (`PROFILE_BATCH_SIZE`,
-default 3). Over multiple days the random selection ensures all companies
-get refreshed. Every cycle the full TSX symbol list is synced — new
-listings are added as stub rows and delisted symbols are removed.
-
-New symbols are discovered automatically (`discoverSymbols` in
-`internal/refresher`) and inserted as "stub" rows, which are always
-eligible for refresh due to their epoch `last_updated` timestamp.
+Every cycle the full TSX symbol list is synced — new listings are added
+and delisted symbols are removed.
 
 ## Running it
 
 ### 1. Get a free API key
-Sign up at https://site.financialmodelingprep.com/ and grab your API key.
+Sign up at https://finnhub.io/ and grab your API key (no credit card required).
 
 ### 2. Generate the gRPC code
 ```
-cp .env.example .env   # fill in FMP_API_KEY at minimum
+cp .env.example .env   # fill in FINNHUB_API_KEY at minimum
 make proto             # requires buf (https://buf.build), or:
 make proto-protoc      # requires local protoc + protoc-gen-go + protoc-gen-go-grpc
 ```
 
 ### 3a. Run with Docker Compose (recommended)
 ```
-export FMP_API_KEY=your_key_here
+export FINNHUB_API_KEY=your_key_here
 make docker-up
 ```
 This starts Postgres and the service together; the Containerfile generates
@@ -86,7 +75,7 @@ sudo apt install -y podman podman-compose
 
 Build and run:
 ```
-export FMP_API_KEY=your_key_here
+export FINNHUB_API_KEY=your_key_here
 podman-compose up -d --build
 ```
 
@@ -136,7 +125,7 @@ installs the env file to `~/.config/tsx-tracker/.env.podman`, and runs
 $EDITOR ~/.config/tsx-tracker/.env.podman
 ```
 
-Fill in `DB_USER`, `DB_PASSWORD`, and `FMP_API_KEY` at minimum. See
+Fill in `DB_USER`, `DB_PASSWORD`, and `FINNHUB_API_KEY` at minimum. See
 `.env.podman` in the repo for all available settings.
 
 **3. Build the container image:**

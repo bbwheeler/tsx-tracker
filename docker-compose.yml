@@ -26,11 +26,9 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_NAME: ${DB_NAME:-tsx_tracker}
       DB_SSLMODE: disable
-      FMP_API_KEY: ${FMP_API_KEY}
-      FMP_BASE_URL: https://financialmodelingprep.com
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+      FINNHUB_BASE_URL: https://finnhub.io/api/v1
       REFRESH_CHECK_INTERVAL: 24h
-      DAILY_REFRESH_COUNT: "50"
-      PROFILE_BATCH_SIZE: "3"
     ports:
       - "50051:50051"
 

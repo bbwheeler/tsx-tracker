@@ -35,7 +35,7 @@ systemctl daemon-reload
 echo ""
 echo "Done. Next steps:"
 echo ""
-echo "  1. Edit $ENV_DIR/.env.podman and fill in DB_USER, DB_PASSWORD, FMP_API_KEY"
+echo "  1. Edit $ENV_DIR/.env.podman and fill in DB_USER, DB_PASSWORD, FINNHUB_API_KEY"
 echo ""
 echo "  2. Build the image:"
 echo "       systemctl start tsx-tracker-build.service"

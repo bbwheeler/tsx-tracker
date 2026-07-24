@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compil
 COPY . .
 
 ENV PATH="$PATH:/root/go/bin"
+RUN mkdir -p gen
 RUN protoc \
       --go_out=gen --go_opt=paths=source_relative \
       --go-grpc_out=gen --go-grpc_opt=paths=source_relative,require_unimplemented_servers=false \

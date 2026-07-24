@@ -69,7 +69,7 @@ type symbolListEntry struct {
 // price). Full details are fetched separately per-symbol via Profiles, so
 // that the refresher can spread out and rate-limit the expensive calls.
 func (c *Client) ListSymbols(ctx context.Context) ([]db.Company, error) {
-	u := fmt.Sprintf("%s/api/v3/symbol/TSX?apikey=%s", c.baseURL, url.QueryEscape(c.apiKey))
+	u := fmt.Sprintf("%s/stable/stock-list?exchange=TSX&apikey=%s", c.baseURL, url.QueryEscape(c.apiKey))
 
 	var entries []symbolListEntry
 	if err := c.getJSON(ctx, u, &entries); err != nil {
@@ -119,7 +119,7 @@ func (c *Client) Profiles(ctx context.Context, symbols []string) ([]db.Company, 
 		return nil, nil
 	}
 	joined := strings.Join(symbols, ",")
-	u := fmt.Sprintf("%s/api/v3/profile/%s?apikey=%s", c.baseURL, url.QueryEscape(joined), url.QueryEscape(c.apiKey))
+	u := fmt.Sprintf("%s/stable/profile?symbol=%s&apikey=%s", c.baseURL, url.QueryEscape(joined), url.QueryEscape(c.apiKey))
 
 	var entries []profileEntry
 	if err := c.getJSON(ctx, u, &entries); err != nil {

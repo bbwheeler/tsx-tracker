@@ -43,7 +43,7 @@ podman-down:
 quadlet-install:
 	mkdir -p ~/.config/containers/systemd
 	mkdir -p ~/.config/tsx-tracker
-	cp deploy/quadlet/tsx-tracker-rootless.build ~/.config/containers/systemd/tsx-tracker.build
+	cp deploy/quadlet/tsx-tracker-rootless-build.service ~/.config/containers/systemd/tsx-tracker-build.service
 	cp deploy/quadlet/tsx-tracker-rootless.container ~/.config/containers/systemd/tsx-tracker.container
 	cp -n .env.podman ~/.config/tsx-tracker/.env.podman 2>/dev/null || true
 	chmod 600 ~/.config/tsx-tracker/.env.podman

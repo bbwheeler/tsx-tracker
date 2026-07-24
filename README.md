@@ -128,7 +128,7 @@ chmod 600 ~/.config/tsx-tracker/.env.podman
 **3. Install the Quadlet unit files:**
 ```
 mkdir -p ~/.config/containers/systemd
-cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.build ~/.config/containers/systemd/tsx-tracker.build
+cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless-build.service ~/.config/containers/systemd/tsx-tracker-build.service
 cp ~/tsx-tracker/deploy/quadlet/tsx-tracker-rootless.container ~/.config/containers/systemd/tsx-tracker.container
 systemctl --user daemon-reload
 ```

@@ -4,7 +4,6 @@ PublishPort=50051:50051
 EnvironmentFile=%h/.config/tsx-tracker/.env.podman
 PodmanArgs=--read-only
 PodmanArgs=--tmpfs=/tmp:rw,noexec,nosuid,size=64m
-PullPolicy=local
 
 [Service]
 Restart=always

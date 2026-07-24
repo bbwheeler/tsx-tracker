@@ -2,26 +2,20 @@
 
 ## Overall Purpose
 
-tsx-tracker is a Go-based microservice that maintains an up-to-date database of companies listed on the Toronto Stock Exchange (TSX). It automatically fetches, stores, and serves company profile data (CEO, sector, industry, market cap, financials, etc.) via a gRPC API. Every 24 hours it syncs the full TSX symbol list (adding new listings, removing delisted companies) and refreshes a random subset of companies with complete profile data.
+tsx-tracker is a Go-based microservice that maintains an up-to-date database of companies listed on the Toronto Stock Exchange (TSX). It automatically fetches, stores, and serves company data via a gRPC API. Every 24 hours it syncs the full TSX symbol list — adding new listings and removing delisted companies.
 
 ## System Description
 
 ### Data Collection & Discovery
 
-The system discovers TSX-listed companies through the Financial Modeling Prep (FMP) free-tier API. It automatically identifies new symbols and creates "stub" records containing basic information (symbol, name, price). Stub rows are prioritized for full profile enrichment because they have an epoch `last_updated` timestamp, making them always eligible for refresh.
+The system discovers TSX-listed companies through the Finnhub free-tier API (`GET /stock/symbol?exchange=TO`). It automatically identifies new symbols and creates records containing basic information (symbol, name, exchange, currency).
 
 ### Background Refresher
 
 A background process runs every 24 hours to:
 
-1. **Discover new symbols** - Pulls the full TSX symbol list from FMP and inserts any unknown companies as stub rows
+1. **Discover new symbols** - Pulls the full TSX symbol list from Finnhub and inserts any unknown companies
 2. **Prune delisted symbols** - Removes any companies from the database whose symbols are no longer on the TSX
-3. **Refresh a random subset** - Selects a random sample of companies that haven't been refreshed within the last 24 hours (bounded by the daily refresh count) and fetches their complete profile data in rate-limited batches
-4. **Handle API limits** - Respects FMP's free-tier rate limits by:
-   - Limiting profile fetches per cycle (default: 50)
-   - Batching requests (default: 3 symbols per API call)
-
-Over multiple days, the random selection ensures all companies eventually get refreshed.
 
 ### Data Storage
 
@@ -51,10 +45,8 @@ All runtime settings are configurable via environment variables:
 |----------|---------|-------------|
 | `GRPC_PORT` | 50051 | gRPC server port |
 | `DB_HOST/PORT/USER/PASSWORD/NAME/SSLMODE` | various | PostgreSQL connection |
-| `FMP_API_KEY` | required | Financial Modeling Prep API key |
-| `REFRESH_CHECK_INTERVAL` | 24h | How often the symbol list is synced and companies are refreshed |
-| `DAILY_REFRESH_COUNT` | 50 | Random companies refreshed per cycle |
-| `PROFILE_BATCH_SIZE` | 3 | Symbols per upstream API call |
+| `FINNHUB_API_KEY` | required | Finnhub API key (free at finnhub.io) |
+| `REFRESH_CHECK_INTERVAL` | 24h | How often the symbol list is synced |
 
 ### Deployment
 

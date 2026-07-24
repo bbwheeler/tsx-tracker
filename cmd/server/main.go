@@ -54,12 +54,12 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("database ready")
 
-	fmpClient := provider.NewClient(cfg.FMPBaseURL, cfg.FMPAPIKey)
+	finnhubClient := provider.NewClient(cfg.FinnhubBaseURL, cfg.FinnhubAPIKey)
 
 	// Background loop that keeps company data fresh. Runs an immediate
 	// sync on startup, then on cfg.RefreshCheckInterval.
 	var wg sync.WaitGroup
-	ref := refresher.New(cfg, repo, fmpClient, log)
+	ref := refresher.New(cfg, repo, finnhubClient, log)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

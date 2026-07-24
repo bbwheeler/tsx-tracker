@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -65,13 +64,11 @@ func setupRepo(t *testing.T) *db.Repository {
 	return repo
 }
 
-func testConfig(fmpURL string) *config.Config {
+func testConfig(finnhubURL string) *config.Config {
 	return &config.Config{
-		FMPAPIKey:            "test",
-		FMPBaseURL:           fmpURL,
+		FinnhubAPIKey:        "test",
+		FinnhubBaseURL:       finnhubURL,
 		RefreshCheckInterval: 24 * time.Hour,
-		DailyRefreshCount:    100,
-		ProfileBatchSize:     3,
 	}
 }
 
@@ -81,42 +78,26 @@ func TestTick_WithRealRepo(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	var listSymbolsCalled, profilesCalled bool
+	var listSymbolsCalled bool
 
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
 			listSymbolsCalled = true
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "SHOP.TO", "name": "Shopify", "price": 85.0, "exchange": "TSX"},
+				{"symbol": "SHOP", "description": "Shopify Inc.", "type": "Common Stock"},
 			})
-		case "/api/v3/profile/SHOP.TO":
-			profilesCalled = true
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{
-					"symbol": "SHOP.TO", "companyName": "Shopify Inc.",
-					"price": 85.0, "mktCap": 109e9, "sector": "Technology",
-					"industry": "Software", "ceo": "Tobi Lutke",
-					"description": "Commerce platform", "website": "https://shopify.com",
-					"city": "Ottawa", "state": "Ontario", "country": "Canada",
-					"fullTimeEmployees": "20000", "currency": "CAD",
-				},
-			})
-		default:
-			w.WriteHeader(http.StatusNotFound)
+			return
 		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer fmp.Close()
+	defer finnhub.Close()
 
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
-	go func() {
-		ref.Run(ctx)
-	}()
+	go ref.Run(ctx)
 
 	time.Sleep(2 * time.Second)
 	cancel()
@@ -124,9 +105,6 @@ func TestTick_WithRealRepo(t *testing.T) {
 
 	if !listSymbolsCalled {
 		t.Error("ListSymbols was not called")
-	}
-	if !profilesCalled {
-		t.Error("Profiles was not called")
 	}
 
 	vctx := context.Background()
@@ -138,15 +116,12 @@ func TestTick_WithRealRepo(t *testing.T) {
 		t.Errorf("TrackedCount = %d, want 1", count)
 	}
 
-	c, err := repo.GetBySymbol(vctx, "SHOP.TO")
+	c, err := repo.GetBySymbol(vctx, "SHOP")
 	if err != nil {
 		t.Fatalf("GetBySymbol: %v", err)
 	}
 	if c.Name != "Shopify Inc." {
 		t.Errorf("Name = %q, want Shopify Inc.", c.Name)
-	}
-	if c.CEO != "Tobi Lutke" {
-		t.Errorf("CEO = %q, want Tobi Lutke", c.CEO)
 	}
 }
 
@@ -156,30 +131,27 @@ func TestTick_PruneDelisted(t *testing.T) {
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Pre-insert two companies: one that will remain, one that is delisted.
 	if err := repo.UpsertCompanies(ctx, []db.Company{
-		{Symbol: "A.TO", Name: "Active Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
-		{Symbol: "B.TO", Name: "Delisted Corp", Exchange: "TSX", Price: 5, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "A", Name: "Active Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "B", Name: "Delisted Corp", Exchange: "TSX", Price: 5, Currency: "CAD", LastUpdated: time.Now()},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
-			// Only A.TO is still on TSX; B.TO has been delisted.
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode([]map[string]any{
-				{"symbol": "A.TO", "name": "Active Corp", "price": 10.0, "exchange": "TSX"},
+				{"symbol": "A", "description": "Active Corp", "type": "Common Stock"},
 			})
-		default:
-			w.WriteHeader(http.StatusNotFound)
+			return
 		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer fmp.Close()
+	defer finnhub.Close()
 
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -189,109 +161,33 @@ func TestTick_PruneDelisted(t *testing.T) {
 
 	vctx := context.Background()
 
-	// B.TO should have been pruned.
-	_, err := repo.GetBySymbol(vctx, "B.TO")
+	_, err := repo.GetBySymbol(vctx, "B")
 	if err != db.ErrNotFound {
-		t.Errorf("B.TO should have been pruned, got err = %v", err)
+		t.Errorf("B should have been pruned, got err = %v", err)
 	}
 
-	// A.TO should still exist.
-	c, err := repo.GetBySymbol(vctx, "A.TO")
+	c, err := repo.GetBySymbol(vctx, "A")
 	if err != nil {
-		t.Fatalf("A.TO should still exist: %v", err)
+		t.Fatalf("A should still exist: %v", err)
 	}
 	if c.Name != "Active Corp" {
 		t.Errorf("Name = %q, want Active Corp", c.Name)
 	}
 }
 
-func TestTick_StaleRefresh(t *testing.T) {
+func TestTick_SymbolsAPIError(t *testing.T) {
 	repo := setupRepo(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "STALE.TO", Name: "Stale", Exchange: "TSX", Price: 1, Currency: "CAD"},
-	}); err != nil {
-		t.Fatalf("insert stub: %v", err)
-	}
-
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{})
-		case "/api/v3/profile/STALE.TO":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{
-					"symbol": "STALE.TO", "companyName": "Stale Corp",
-					"price": 5.0, "mktCap": 1e6, "sector": "Industrials",
-					"industry": "Manufacturing", "ceo": "Bob",
-					"description": "A stale company", "website": "https://stale.com",
-					"city": "Calgary", "state": "Alberta", "country": "Canada",
-					"fullTimeEmployees": "50", "currency": "CAD",
-				},
-			})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
 	}))
-	defer fmp.Close()
+	defer finnhub.Close()
 
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
-	ref := refresher.New(cfg, repo, p, log)
-
-	go ref.Run(ctx)
-	time.Sleep(3 * time.Second)
-	cancel()
-	time.Sleep(100 * time.Millisecond)
-
-	vctx := context.Background()
-	c, err := repo.GetBySymbol(vctx, "STALE.TO")
-	if err != nil {
-		t.Fatalf("GetBySymbol: %v", err)
-	}
-	if c.Name != "Stale Corp" {
-		t.Errorf("Name = %q, want Stale Corp (should be refreshed)", c.Name)
-	}
-	if c.CEO != "Bob" {
-		t.Errorf("CEO = %q, want Bob", c.CEO)
-	}
-	if time.Since(c.LastUpdated) > 1*time.Minute {
-		t.Errorf("LastUpdated = %v, should be recent", c.LastUpdated)
-	}
-}
-
-func TestTick_ProfilesAPIError(t *testing.T) {
-	repo := setupRepo(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
-	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "ERR.TO", Name: "Error Corp", Exchange: "TSX", Price: 1, Currency: "CAD"},
-	}); err != nil {
-		t.Fatalf("insert stub: %v", err)
-	}
-
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{})
-		case "/api/v3/profile/ERR.TO":
-			w.WriteHeader(http.StatusInternalServerError)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer fmp.Close()
-
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
@@ -304,68 +200,8 @@ func TestTick_ProfilesAPIError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("TrackedCount = %d, want 1", count)
-	}
-}
-
-func TestTick_SymbolsAPIError(t *testing.T) {
-	repo := setupRepo(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
-	// Pre-insert a stale company so refreshRandom still runs.
-	if err := repo.InsertSymbolStubs(ctx, []db.Company{
-		{Symbol: "PREEXIST.TO", Name: "Pre-existing", Exchange: "TSX", Price: 1, Currency: "CAD"},
-	}); err != nil {
-		t.Fatalf("insert stub: %v", err)
-	}
-
-	var profileCalled bool
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
-			w.WriteHeader(http.StatusInternalServerError)
-		case "/api/v3/profile/PREEXIST.TO":
-			profileCalled = true
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{
-				{
-					"symbol": "PREEXIST.TO", "companyName": "Pre-existing Corp",
-					"price": 5.0, "mktCap": 1e6, "sector": "Industrials",
-					"industry": "Manufacturing", "ceo": "Bob",
-					"description": "Pre-existing", "website": "https://pre.com",
-					"city": "Calgary", "state": "Alberta", "country": "Canada",
-					"fullTimeEmployees": "50", "currency": "CAD",
-				},
-			})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer fmp.Close()
-
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
-	ref := refresher.New(cfg, repo, p, log)
-
-	go ref.Run(ctx)
-	time.Sleep(2 * time.Second)
-	cancel()
-	time.Sleep(100 * time.Millisecond)
-
-	if !profileCalled {
-		t.Error("Profiles was not called for stale company")
-	}
-
-	vctx := context.Background()
-	c, err := repo.GetBySymbol(vctx, "PREEXIST.TO")
-	if err != nil {
-		t.Fatalf("GetBySymbol: %v", err)
-	}
-	if c.Name != "Pre-existing Corp" {
-		t.Errorf("Name = %q, want Pre-existing Corp", c.Name)
+	if count != 0 {
+		t.Errorf("TrackedCount = %d, want 0", count)
 	}
 }
 
@@ -373,14 +209,14 @@ func TestTick_ContextCancellation(t *testing.T) {
 	repo := setupRepo(t)
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]map[string]any{})
 	}))
-	defer fmp.Close()
+	defer finnhub.Close()
 
-	cfg := testConfig(fmp.URL)
-	p := provider.NewClient(fmp.URL, "test")
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -401,77 +237,233 @@ func TestTick_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestTick_MultipleBatchProcessing(t *testing.T) {
+func TestTick_MultipleSymbols(t *testing.T) {
 	repo := setupRepo(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Insert 5 stale stubs
-	var stubs []db.Company
-	for i := 0; i < 5; i++ {
-		stubs = append(stubs, db.Company{
-			Symbol:   string(rune('A'+i)) + ".TO",
-			Name:     "Stub " + string(rune('A'+i)),
-			Exchange: "TSX",
-			Price:    float64(i + 1),
-			Currency: "CAD",
-		})
-	}
-	if err := repo.InsertSymbolStubs(ctx, stubs); err != nil {
-		t.Fatalf("insert stubs: %v", err)
-	}
-
-	profileCalls := make(map[string]bool)
-	fmp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v3/symbol/TSX":
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]any{})
-		default:
-			if len(r.URL.Path) > len("/api/v3/profile/") {
-				symbols := r.URL.Path[len("/api/v3/profile/"):]
-				for _, s := range strings.Split(symbols, ",") {
-					profileCalls[s] = true
-				}
-				w.Header().Set("Content-Type", "application/json")
-				var profiles []map[string]any
-				for _, s := range strings.Split(symbols, ",") {
-					profiles = append(profiles, map[string]any{
-						"symbol": s, "companyName": s + " Corp",
-						"price": 10.0, "mktCap": 1e6, "sector": "Technology",
-						"industry": "Software", "ceo": "CEO",
-						"description": "Desc", "website": "https://example.com",
-						"city": "Toronto", "state": "Ontario", "country": "Canada",
-						"fullTimeEmployees": "100", "currency": "CAD",
-					})
-				}
-				json.NewEncoder(w).Encode(profiles)
-			}
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"symbol": "SHOP", "description": "Shopify Inc.", "type": "Common Stock"},
+				{"symbol": "RY", "description": "Royal Bank", "type": "Common Stock"},
+				{"symbol": "TD", "description": "Toronto-Dominion Bank", "type": "Common Stock"},
+			})
+			return
 		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer fmp.Close()
+	defer finnhub.Close()
 
-	cfg := testConfig(fmp.URL)
-	cfg.ProfileBatchSize = 2 // Small batch size to force multiple batches
-	p := provider.NewClient(fmp.URL, "test")
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
 	ref := refresher.New(cfg, repo, p, log)
 
 	go ref.Run(ctx)
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 	cancel()
 	time.Sleep(100 * time.Millisecond)
-
-	if len(profileCalls) != 5 {
-		t.Errorf("got %d profile calls, want 5", len(profileCalls))
-	}
 
 	vctx := context.Background()
 	count, err := repo.TrackedCount(vctx)
 	if err != nil {
 		t.Fatalf("count: %v", err)
 	}
-	if count != 5 {
-		t.Errorf("TrackedCount = %d, want 5", count)
+	if count != 3 {
+		t.Errorf("TrackedCount = %d, want 3", count)
+	}
+
+	for _, sym := range []string{"SHOP", "RY", "TD"} {
+		_, err := repo.GetBySymbol(vctx, sym)
+		if err != nil {
+			t.Errorf("GetBySymbol(%s): %v", sym, err)
+		}
+	}
+}
+
+func TestTick_IdempotentSymbols(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := repo.InsertSymbolStubs(ctx, []db.Company{
+		{Symbol: "EXISTING", Name: "Existing Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
+	}); err != nil {
+		t.Fatalf("insert stub: %v", err)
+	}
+
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"symbol": "EXISTING", "description": "Existing Corp", "type": "Common Stock"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer finnhub.Close()
+
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(2 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	vctx := context.Background()
+	count, err := repo.TrackedCount(vctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("TrackedCount = %d, want 1 (should not duplicate)", count)
+	}
+}
+
+func TestTick_SymbolSync_CaseInsensitive(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := repo.InsertSymbolStubs(ctx, []db.Company{
+		{Symbol: "SYM", Name: "Symbol Corp", Exchange: "TSX", Price: 10, Currency: "CAD"},
+	}); err != nil {
+		t.Fatalf("insert stub: %v", err)
+	}
+
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"symbol": "sym", "description": "Symbol Corp", "type": "Common Stock"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer finnhub.Close()
+
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(2 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	vctx := context.Background()
+	count, err := repo.TrackedCount(vctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("TrackedCount = %d, want 1", count)
+	}
+}
+
+func TestTick_SymbolSync_EmptyList(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := repo.InsertSymbolStubs(ctx, []db.Company{
+		{Symbol: "WILL_BE_GONE", Name: "Gone Corp", Exchange: "TSX", Price: 10, Currency: "CAD"},
+	}); err != nil {
+		t.Fatalf("insert stub: %v", err)
+	}
+
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer finnhub.Close()
+
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(2 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	vctx := context.Background()
+	count, err := repo.TrackedCount(vctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("TrackedCount = %d, want 0", count)
+	}
+}
+
+func TestTick_SymbolSync_PrunesAndAdds(t *testing.T) {
+	repo := setupRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	if err := repo.UpsertCompanies(ctx, []db.Company{
+		{Symbol: "KEEP", Name: "Keep Corp", Exchange: "TSX", Price: 10, Currency: "CAD", LastUpdated: time.Now()},
+		{Symbol: "DROP", Name: "Drop Corp", Exchange: "TSX", Price: 20, Currency: "CAD", LastUpdated: time.Now()},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	finnhub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/stock/symbol" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"symbol": "KEEP", "description": "Keep Corp", "type": "Common Stock"},
+				{"symbol": "ADD", "description": "Add Corp", "type": "Common Stock"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer finnhub.Close()
+
+	cfg := testConfig(finnhub.URL)
+	p := provider.NewClient(finnhub.URL, "test")
+	ref := refresher.New(cfg, repo, p, log)
+
+	go ref.Run(ctx)
+	time.Sleep(2 * time.Second)
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	vctx := context.Background()
+
+	_, err := repo.GetBySymbol(vctx, "DROP")
+	if err != db.ErrNotFound {
+		t.Errorf("DROP should have been pruned, got err = %v", err)
+	}
+
+	count, err := repo.TrackedCount(vctx)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("TrackedCount = %d, want 2", count)
+	}
+
+	for _, sym := range []string{"KEEP", "ADD"} {
+		_, err := repo.GetBySymbol(vctx, sym)
+		if err != nil {
+			t.Errorf("GetBySymbol(%s): %v", sym, err)
+		}
 	}
 }

@@ -11,8 +11,11 @@ import (
 
 func TestListSymbols_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v3/symbol/TSX" {
+		if r.URL.Path != "/stable/stock-list" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("exchange") != "TSX" {
+			t.Errorf("unexpected exchange: %s", r.URL.Query().Get("exchange"))
 		}
 		if r.URL.Query().Get("apikey") != "test-key" {
 			t.Errorf("unexpected apikey: %s", r.URL.Query().Get("apikey"))
@@ -96,8 +99,11 @@ func TestListSymbols_RateLimited(t *testing.T) {
 
 func TestProfiles_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v3/profile/SHOP.TO,RY.TO" {
+		if r.URL.Path != "/stable/profile" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("symbol") != "SHOP.TO,RY.TO" {
+			t.Errorf("unexpected symbol param: %s", r.URL.Query().Get("symbol"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]profileEntry{

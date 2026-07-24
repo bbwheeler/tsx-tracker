@@ -13,7 +13,7 @@ ENV PATH="$PATH:/root/go/bin"
 RUN protoc \
       --go_out=gen --go_opt=paths=source_relative \
       --go-grpc_out=gen --go-grpc_opt=paths=source_relative,require_unimplemented_servers=false \
-      -I proto proto/tsx/v1/tsx.proto
+      -I /usr/include -I proto proto/tsx/v1/tsx.proto
 
 RUN go mod tidy
 RUN CGO_ENABLED=0 go build -o /out/tsx-tracker ./cmd/server

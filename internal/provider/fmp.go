@@ -14,12 +14,7 @@ import (
 	"github.com/example/tsx-tracker/internal/db"
 )
 
-const defaultBaseURL = "https://www.tsx.com/json/company-directory/search/tsx"
-
-var letters = []string{
-	"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-	"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-}
+const defaultBaseURL = "https://www.tsx.com/json/company-directory/search/tsx/*"
 
 type tsxResponse struct {
 	Results []tsxEntry `json:"results"`
@@ -38,7 +33,7 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		baseURL:    defaultBaseURL,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -54,38 +49,22 @@ func NewClientForTest(baseURL string) *Client {
 // ListSymbols returns every stock symbol listed on the Toronto Stock
 // Exchange (TSX) by querying the official TMX company directory.
 func (c *Client) ListSymbols(ctx context.Context) ([]db.Company, error) {
-	var out []db.Company
-
-	for _, letter := range letters {
-		companies, err := c.fetchLetter(ctx, letter)
-		if err != nil {
-			return nil, fmt.Errorf("fetch letter %s: %w", letter, err)
-		}
-		out = append(out, companies...)
-	}
-
-	return out, nil
-}
-
-func (c *Client) fetchLetter(ctx context.Context, letter string) ([]db.Company, error) {
-	u := fmt.Sprintf("%s/%s", c.baseURL, letter)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch TSX symbols: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("TMX returned HTTP %d for letter %s", resp.StatusCode, letter)
+		return nil, fmt.Errorf("TMX returned HTTP %d", resp.StatusCode)
 	}
 
-	const maxBodySize = 10 << 20
+	const maxBodySize = 20 << 20
 	var tsxResp tsxResponse
 	dec := json.NewDecoder(io.LimitReader(resp.Body, maxBodySize))
 	if err := dec.Decode(&tsxResp); err != nil {

@@ -5,25 +5,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
 func TestListSymbols_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		letter := strings.TrimPrefix(r.URL.Path, "/")
 		w.Header().Set("Content-Type", "application/json")
-		switch letter {
-		case "A":
-			json.NewEncoder(w).Encode(tsxResponse{
-				Results: []tsxEntry{
-					{Symbol: "AC", Name: "Air Canada"},
-					{Symbol: "ATD", Name: "Alimentation Couche-Tard Inc."},
-				},
-			})
-		default:
-			json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
-		}
+		json.NewEncoder(w).Encode(tsxResponse{
+			Results: []tsxEntry{
+				{Symbol: "AC", Name: "Air Canada"},
+				{Symbol: "ATD", Name: "Alimentation Couche-Tard Inc."},
+			},
+		})
 	}))
 	defer srv.Close()
 
@@ -113,18 +106,13 @@ func TestListSymbols_ContextCancelled(t *testing.T) {
 func TestListSymbols_SkipsEmptySymbols(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		letter := strings.TrimPrefix(r.URL.Path, "/")
-		if letter == "G" {
-			json.NewEncoder(w).Encode(tsxResponse{
-				Results: []tsxEntry{
-					{Symbol: "GOOD", Name: "Good Corp"},
-					{Symbol: "", Name: "Empty Symbol"},
-					{Symbol: "ALSO_GOOD", Name: "Also Good Corp"},
-				},
-			})
-		} else {
-			json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
-		}
+		json.NewEncoder(w).Encode(tsxResponse{
+			Results: []tsxEntry{
+				{Symbol: "GOOD", Name: "Good Corp"},
+				{Symbol: "", Name: "Empty Symbol"},
+				{Symbol: "ALSO_GOOD", Name: "Also Good Corp"},
+			},
+		})
 	}))
 	defer srv.Close()
 

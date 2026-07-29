@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: ${DB_NAME:-tsx_tracker}
+      POSTGRES_DB: ${DB_NAME:-tsx_history}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,10 +14,7 @@ services:
       retries: 10
 
   tsx-tracker:
-    build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
+    image: localhost/tsx-tracker:latest
     environment:
       GRPC_PORT: "50051"
       DB_HOST: postgres
@@ -29,6 +26,57 @@ services:
       REFRESH_CHECK_INTERVAL: 24h
     ports:
       - "50051:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  tsx-evaluator:
+    image: localhost/tsx-evaluator:latest
+    environment:
+      GRPC_PORT: "50052"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tsx_evaluator}
+      DB_SSLMODE: disable
+      TRACKER_ADDR: tsx-tracker:50051
+      EVAL_INTERVAL: 8h
+      EVAL_BATCH_SIZE: 1
+      LLM_BASE_URL: http://host.docker.internal:11434
+      LLM_MODEL: llama3
+      LLM_TIMEOUT: 60s
+    ports:
+      - "50052:50052"
+    depends_on:
+      tsx-tracker:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  tsx-history:
+    build: .
+    environment:
+      GRPC_PORT: "50053"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tsx_history}
+      DB_SSLMODE: disable
+      TRACKER_ADDR: tsx-tracker:50051
+      EVALUATOR_ADDR: tsx-evaluator:50052
+      SYNC_INTERVAL: 1h
+    ports:
+      - "50053:50053"
+    depends_on:
+      tsx-tracker:
+        condition:
+unhealthy
+      tsx-evaluator:
+        condition: service_healthy
 
 volumes:
   pgdata:
+
+

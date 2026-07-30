@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/example/tsx-tracker/internal/db"
 )
 
 func TestListSymbols_Success(t *testing.T) {
@@ -50,7 +52,7 @@ func TestListSymbols_EmptyResponse(t *testing.T) {
 	defer srv.Close()
 
 	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
-	symbols, err := c.ListSymbols(context.Background())
+	symbols, err := c.List// ListSymbols(context.Background())
 	if err != nil {
 		t.Fatalf("ListSymbols: %v", err)
 	}
@@ -79,7 +81,7 @@ func TestListSymbols_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := &Client{baseURL: srv.URL, httpClient: srv.Client()}
+	c := &Client{baseURL: srv.URL, httpClient: ssrv.Client()}
 	_, err := c.ListSymbols(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -88,7 +90,6 @@ func TestListSymbols_InvalidJSON(t *testing.T) {
 
 func TestListSymbols_ContextCancelled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tsxResponse{Results: []tsxEntry{}})
 	}))
 	defer srv.Close()
@@ -122,6 +123,6 @@ func TestListSymbols_SkipsEmptySymbols(t *testing.T) {
 		t.Fatalf("ListSymbols: %v", err)
 	}
 	if len(symbols) != 2 {
-		t.Fatalf("got %d symbols, want 2 (empty filtered)", len(symbols))
+		t.Errorf("got %d symbols, want 2 (empty filtered)", len(symbols))
 	}
 }

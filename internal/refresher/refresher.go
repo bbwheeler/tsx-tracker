@@ -1,4 +1,4 @@
-// Package refresher runs a background loop that keeps the tracked TSX
+// Package refresher runs a background loop that keeps the tracked stock
 // symbol list up to date. Every cycle it syncs the full list (adding
 // new symbols, removing delisted ones).
 package refresher
@@ -15,18 +15,18 @@ import (
 )
 
 type Refresher struct {
-	cfg      *config.Config
-	repo     *db.Repository
-	provider *provider.Client
-	log      *slog.Logger
+	cfg       *config.Config
+	repo      *db.Repository
+	providers []provider.Provider
+	log       *slog.Logger
 }
 
-func New(cfg *config.Config, repo *db.Repository, p *provider.Client, log *slog.Logger) *Refresher {
-	return &Refresher{cfg: cfg, repo: repo, provider: p, log: log}
+func New(cfg *config.Config, repo *db.Repository, providers []provider.Provider, log *slog.Logger) *Refresher {
+	return &Refresher{cfg: cfg, repo: repo, providers: providers, log: log}
 }
 
 // Run blocks, performing an immediate sync and then repeating every
-// cfg.RefreshCheckInterval, until ctx is cancelled.
+// cfg.RefreshCheckInterval, until ctx is upon cancelled.
 func (r *Refresher) Run(ctx context.Context) {
 	r.tick(ctx)
 
@@ -46,11 +46,11 @@ func (r *Refresher) Run(ctx context.Context) {
 func (r *Refresher) tick(ctx context.Context) {
 	r.log.Info("refresh cycle starting")
 
-	symbols, err := r.discoverSymbols(ctx)
+	allSymbols, err := r.discoverAllSymbols(ctx)
 	if err != nil {
 		r.log.Error("discovering symbols failed", "error", err)
 	} else {
-		if err := r.pruneDelisted(ctx, symbols); err != nil {
+		if err := r.pruneDelisted(ctx, allSymbols); err != nil {
 			r.log.Error("pruning delisted symbols failed", "error", err)
 		}
 	}
@@ -58,27 +58,33 @@ func (r *Refresher) tick(ctx context.Context) {
 	r.log.Info("refresh cycle complete")
 }
 
-// discoverSymbols pulls the current TSX symbol list and inserts stub
+// discoverAllSymbols pulls the current symbol list from all providers and inserts stub
 // rows for any symbol we don't already track.
-func (r *Refresher) discoverSymbols(ctx context.Context) ([]string, error) {
-	companies, err := r.provider.ListSymbols(ctx)
-	if err != nil {
+func (r *Refresher) discoverAllSymbols(ctx context.Context) ([]string, error) {
+	var allCompanies []db.Company
+
+	for _, p := range r.providers {
+		companies, err := p.ListSymbols(ctx)
+		if err != nil {
+			r.log.Error("provider failed to list symbols", "error", err)
+			continue
+		}
+		allCompanies = append(allCompanies, companies...)
+	}
+
+	if err := r.repo.InsertSymbolStubs(ctx, allCompanies); err != nil {
 		return nil, err
 	}
 
-	if err := r.repo.InsertSymbolStubs(ctx, companies); err != nil {
-		return nil, err
-	}
-
-	symbols := make([]string, len(companies))
-	for i, c := range companies {
+	symbols := make([]string, len(allCompanies))
+	for i, c := range allCompanies {
 		symbols[i] = c.Symbol
 	}
 	return symbols, nil
 }
 
 // pruneDelisted removes any companies from the database whose symbols
-// are not in the current TSX symbol list returned by the provider.
+// are not in the current tracked symbol list returned by the providers.
 func (r *Refresher) pruneDelisted(ctx context.Context, currentSymbols []string) error {
 	current := make(map[string]struct{}, len(currentSymbols))
 	for _, s := range currentSymbols {

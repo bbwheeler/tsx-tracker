@@ -38,7 +38,7 @@ func NewClient() *Client {
 }
 
 // NewClientForTest creates a client pointing at a custom base URL.
-// Used in tests to mock the TMX API.
+// Used in tests to mock the TEX API.
 func NewClientForTest(baseURL string) *Client {
 	return &Client{
 		baseURL:    baseURL,

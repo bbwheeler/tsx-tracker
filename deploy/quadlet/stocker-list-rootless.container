@@ -1,7 +1,7 @@
 [Container]
-Image=localhost/tsx-tracker:latest
+Image=localhost/stocker-list:latest
 Network=host
-EnvironmentFile=%h/.config/tsx-tracker/.env.podman
+EnvironmentFile=%h/.config/stocker-list/.env.podman
 PodmanArgs=--read-only
 PodmanArgs=--tmpfs=/tmp:rw,noexec,nosuid,size=64m
 

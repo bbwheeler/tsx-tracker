@@ -16,13 +16,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/example/tsx-tracker/internal/config"
-	"github.com/example/tsx-tracker/internal/db"
-	"github.com/example/tsx-tracker/internal/grpcserver"
-	"github.com/example/tsx-tracker/internal/provider"
-	"github.com/example/tsx-tracker/internal/refresher"
+	"github.com/anomalyco/stocker-list/internal/config"
+	"github.com/anomalyco/stocker-list/internal/db"
+	"github.com/anomalyco/stocker-list/internal/grpcserver"
+	"github.com/anomalyco/stocker-list/internal/provider"
+	"github.com/anomalyco/stocker-list/internal/refresher"
 
-	tsxv1 "github.com/example/tsx-tracker/gen/tsx/v1"
+	tsxv1 "github.com/anomalyco/stocker-list/gen/tsx/v1"
 )
 
 func main() {

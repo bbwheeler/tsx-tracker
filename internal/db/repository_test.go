@@ -8,7 +8,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/example/tsx-tracker/internal/db"
+	"github.com/anomalyco/stocker-list/internal/db"
 )
 
 func TestMain(m *testing.M) {

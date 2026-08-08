@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/example/tsx-tracker/internal/db"
+	"github.com/anomalyco/stocker-list/internal/db"
 )
 
 const defaultBaseURL = "https://www.tsx.com/json/company-directory/search/tsx/*"

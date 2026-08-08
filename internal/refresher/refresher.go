@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/tsx-tracker/internal/config"
-	"github.com/example/tsx-tracker/internal/db"
-	"github.com/example/tsx-tracker/internal/provider"
+	"github.com/anomalyco/stocker-list/internal/config"
+	"github.com/anomalyco/stocker-list/internal/db"
+	"github.com/anomalyco/stocker-list/internal/provider"
 )
 
 type Refresher struct {

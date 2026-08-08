@@ -9,9 +9,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/example/tsx-tracker/internal/db"
+	"github.com/anomalyco/stocker-list/internal/db"
 
-	tsxv1 "github.com/example/tsx-tracker/gen/tsx/v1"
+	tsxv1 "github.com/anomalyco/stocker-list/gen/tsx/v1"
 )
 
 const (

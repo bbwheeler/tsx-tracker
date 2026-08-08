@@ -1,0 +1,3 @@
+[Build]
+Containerfile=/opt/stocker-list/Containerfile
+Image=localhost/stocker-list:latest

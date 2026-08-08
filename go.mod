@@ -1,4 +1,4 @@
-module github.com/example/tsx-tracker
+module github.com/anomalyco/stocker-list
 
 go 1.25.0
 

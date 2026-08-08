@@ -1,3 +1,0 @@
-[Build]
-Containerfile=/opt/tsx-tracker/Containerfile
-Image=localhost/tsx-tracker:latest

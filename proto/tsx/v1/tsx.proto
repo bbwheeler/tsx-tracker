@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tsx.v1;
 
-option go_package = "github.com/example/tsx-tracker/gen/tsx/v1;tsxv1";
+option go_package = "github.com/anomalyco/stocker-list/gen/tsx/v1;tsxv1";
 
 // Company represents a single TSX-listed company.
 message Company {

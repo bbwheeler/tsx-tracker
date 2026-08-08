@@ -14,10 +14,10 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/example/tsx-tracker/internal/config"
-	"github.com/example/tsx-tracker/internal/db"
-	"github.com/example/tsx-tracker/internal/provider"
-	"github.com/example/tsx-tracker/internal/refresher"
+	"github.com/anomalyco/stocker-list/internal/config"
+	"github.com/anomalyco/stocker-list/internal/db"
+	"github.com/anomalyco/stocker-list/internal/provider"
+	"github.com/anomalyco/stocker-list/internal/refresher"
 )
 
 func setupRepo(t *testing.T) *db.Repository {

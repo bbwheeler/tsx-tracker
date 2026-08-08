@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="/opt/tsx-tracker"
+INSTALL_DIR="/opt/stocker-list"
 QUADLET_DIR="/etc/containers/systemd"
-ENV_DIR="/etc/tsx-tracker"
+ENV_DIR="/etc/stocker-list"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -21,8 +21,8 @@ rm -rf "$INSTALL_DIR/bin" "$INSTALL_DIR/gen"
 
 echo "==> Installing Quadlet units to $QUADLET_DIR"
 mkdir -p "$QUADLET_DIR"
-cp "$SCRIPT_DIR"/tsx-tracker.build "$QUADLET_DIR/"
-cp "$SCRIPT_DIR"/tsx-tracker.container "$QUADLET_DIR/"
+cp "$SCRIPT_DIR"/stocker-list.build "$QUADLET_DIR/"
+cp "$SCRIPT_DIR"/stocker-list.container "$QUADLET_DIR/"
 
 echo "==> Installing environment file to $ENV_DIR"
 mkdir -p "$ENV_DIR"

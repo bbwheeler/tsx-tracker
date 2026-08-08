@@ -16,10 +16,10 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/example/tsx-tracker/internal/db"
-	"github.com/example/tsx-tracker/internal/grpcserver"
+	"github.com/anomalyco/stocker-list/internal/db"
+	"github.com/anomalyco/stocker-list/internal/grpcserver"
 
-	tsxv1 "github.com/example/tsx-tracker/gen/tsx/v1"
+	tsxv1 "github.com/anomalyco/stocker-list/gen/tsx/v1"
 )
 
 func setupGRPC(t *testing.T) (tsxv1.CompanyServiceClient, func()) {

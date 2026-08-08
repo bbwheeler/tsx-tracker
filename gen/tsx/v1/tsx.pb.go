@@ -322,7 +322,7 @@ const file_tsx_v1_tsx_proto_rawDesc = "" +
 	"\x0eCompanyService\x12L\n" +
 	"\rListCompanies\x12\x1c.tsx.v1.ListCompaniesRequest\x1a\x1d.tsx.v1.ListCompaniesResponse\x12C\n" +
 	"\n" +
-	"GetCompany\x12\x19.tsx.v1.GetCompanyRequest\x1a\x1a.tsx.v1.GetCompanyResponseB1Z/github.com/example/tsx-tracker/gen/tsx/v1;tsxv1b\x06proto3"
+	"GetCompany\x12\x19.tsx.v1.GetCompanyRequest\x1a\x1a.tsx.v1.GetCompanyResponseB1Z/github.com/anomalyco/stocker-list/gen/tsx/v1;tsxv1b\x06proto3"
 
 var (
 	file_tsx_v1_tsx_proto_rawDescOnce sync.Once
